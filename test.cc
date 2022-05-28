@@ -1,19 +1,23 @@
 #include <fcntl.h>
 #include <string>
 #include <cstdio>
-#include "ext2like.hpp"
 #include <iostream>
+#include <unistd.h>
+
+#include "./src/cache.h"
 
 using namespace std;
 
-
 int main(int argc, char **argv)
 {
-    auto t = last_group_calculation(8191);
-
-    cout << get<0>(t) << endl;
-    cout << get<1>(t) << endl;
-    cout << get<2>(t) << endl;
-
-    cout << roundup(5, 4) << endl;
+    Disk disk("disk.img");
+    Cache cache(disk, 2);
+    void *buf = new uint8_t[BLOCK_SIZE];
+    cache.read_block(10, buf);
+    cache.read_block(11, buf);
+    cache.read_block(12, buf);
+    cache.read_block(13, buf);
+    cache.write_block(14, buf);
+    cache.write_block(10, buf);
+    return 0;
 }

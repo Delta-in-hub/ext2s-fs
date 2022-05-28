@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "*.rmd": "markdown",
-        "cstdint": "cpp"
+        "cstdint": "cpp",
+        "tuple": "cpp"
     }
 }
