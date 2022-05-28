@@ -15,7 +15,7 @@ private:
     // dirty flag
     __uint8_t *_dirty;
 
-    // _array + BLOCK_SIZE * n(position in _array)
+    // _array + BLOCK_SIZE * n(position in _data)
     std::list<unsigned> _positon;
     // block_num to position in _array
     std::unordered_map<unsigned, std::list<unsigned>::iterator> _b_to_p;
@@ -28,7 +28,7 @@ private:
         auto block_num = it->second;
         if (_dirty[position])
         {
-            _disk.write_block(block_num, _data + position);
+            _disk.write_block(block_num, _data + position * BLOCK_SIZE);
             _dirty[position] = 0;
         }
     }
@@ -54,6 +54,7 @@ private:
             pop_cache();
         }
         assert(_positon.size() < _capacity);
+        assert(_b_to_p.find(block_num) == _b_to_p.end());
         auto p = get_avaiable_position();
         assert(p != -1);
         _disk.read_block(block_num, _data + p * BLOCK_SIZE);
@@ -74,6 +75,15 @@ private:
             }
         }
         return -1;
+    }
+    void update(unsigned block_num)
+    {
+        auto it = _b_to_p.find(block_num);
+        assert(it != _b_to_p.end());
+        auto p = it->second;
+        auto np = *p;
+        _positon.erase(p);
+        _positon.push_front(np);
     }
 
 public:
@@ -123,6 +133,7 @@ public:
             p = *(it->second);
         ptr = _data + BLOCK_SIZE * p;
         memcpy(buf, ptr, BLOCK_SIZE);
+        update(block_num);
     }
     void write_block(unsigned block_num, const void *buf)
     {
@@ -138,6 +149,7 @@ public:
         ptr = _data + BLOCK_SIZE * p;
         _dirty[p] = 1;
         memcpy(ptr, buf, BLOCK_SIZE);
+        update(block_num);
     }
 };
 #endif // __CACHE_H__

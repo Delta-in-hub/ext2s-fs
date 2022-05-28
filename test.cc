@@ -15,6 +15,8 @@ int main(int argc, char **argv)
     void *buf = new uint8_t[BLOCK_SIZE];
     cache.read_block(10, buf);
     cache.read_block(11, buf);
+    cache.read_block(10, buf);
+
     cache.read_block(12, buf);
     cache.read_block(13, buf);
     cache.write_block(14, buf);
