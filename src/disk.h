@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include "ext2_spec.h"
+#include "config.h"
 
 class Disk
 {

@@ -4,19 +4,6 @@
 
 #include <stdint.h>
 
-/*
- * Size definitions
- */
-#define B (sizeof(uint8_t))
-#define KB (1024 * B)
-#define MB (1024 * KB)
-#define GB (1024 * MB)
-#define TB (1024 * GB)
-#define PB (1024 * TB)
-#define EB (1024 * PB)
-#define ZB (1024 * EB)
-#define YB (1024 * ZB)
-
 // little endian is default for intel x86
 using __le32 = uint32_t;
 using __le16 = uint16_t;
@@ -35,6 +22,25 @@ using __u32 = uint32_t;
 #define EXT2_DOUBLY_INDIRECT_BLOCK (1 + 12)
 // [14] is the triple indirect block
 #define EXT2_TRIPLY_INDIRECT_BLOCK (1 + 1 + 12)
+
+#define EXT2_SUPER_MAGIC 0xEF53
+#define EXT2_VALID_FS 0x0001
+#define EXT2_ERROR_FS 0x0002
+
+#define EXT2_ERRORS_CONTINUE 0x0001
+#define EXT2_ERRORS_RO 0x0002
+#define EXT2_ERRORS_PANIC 0x0003
+
+#define EXT2_OS_LINUX 0x00
+#define EXT2_OS_HURD 0x01
+#define EXT2_OS_MASTER 0x02
+#define EXT2_OS_FREEBSD 0x03
+#define EXT2_OS_LITES 0x04
+
+#define EXT2_DEF_RESUID 0x0000
+#define EXT2_DEF_RESGID 0x0000
+
+#define EXT2_GOOD_OLD_FIRST_INO 11
 
 /*
  * Structure of the super block
@@ -90,14 +96,14 @@ struct ext2_super_block
     __le16 s_mnt_count;       /* Mount count */
     __le16 s_max_mnt_count;   /* Maximal mount count */
     __le16 s_magic;           /* Magic signature */
-    __le16 s_state;           /* File system state */
-    __le16 s_errors;          /* Behaviour when detecting errors */
+    __le16 s_state;           /* File system state ,16bit value indicating the file system state. When the file system is mounted, this state is set to EXT2_ERROR_FS. After the file system was cleanly unmounted, this value is set to EXT2_VALID_FS. */
+    __le16 s_errors;          /* Behaviour when detecting errors , 16bit value indicating what the file system driver should do when an error is detected. */
     __le16 s_minor_rev_level; /* minor revision level */
     __le32 s_lastcheck;       /* time of last check */
     __le32 s_checkinterval;   /* max. time between checks */
     __le32 s_creator_os;      /* OS */
     __le32 s_rev_level;       /* Revision level */
-    __le16 s_def_resuid;      /* Default uid for reserved blocks */
+    __le16 s_def_resuid;      /* Default uid for reserved blocks ,16bit value used as the default user id for reserved blocks.*/
     __le16 s_def_resgid;      /* Default gid for reserved blocks */
     /*
      * These fields are for EXT2_DYNAMIC_REV superblocks only.
@@ -247,8 +253,6 @@ struct ext2_dir_entry_2
                  // The name must be no longer than 255 bytes after encoding
 } __attribute__((packed));
 
-constexpr auto DISK_SIZE = 64 * MB + 3 * KB;
-constexpr auto BLOCK_SIZE = 1 * KB;
 constexpr auto SUPER_BLOCK_SIZE = sizeof(ext2_super_block);
 constexpr auto GROUP_DESC_SIZE = sizeof(ext2_group_desc);
 constexpr auto INODE_SIZE = sizeof(ext2_inode);

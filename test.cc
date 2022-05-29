@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <iostream>
 #include <unistd.h>
+#include <bits/stdc++.h>
 
 #include "./src/cache.h"
 
@@ -21,5 +22,9 @@ int main(int argc, char **argv)
     cache.read_block(13, buf);
     cache.write_block(14, buf);
     cache.write_block(10, buf);
+
+
+    uint32_t t = time(NULL);
+    
     return 0;
 }

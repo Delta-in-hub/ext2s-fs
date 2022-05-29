@@ -2,6 +2,22 @@
     "files.associations": {
         "*.rmd": "markdown",
         "cstdint": "cpp",
-        "tuple": "cpp"
+        "tuple": "cpp",
+        "*.tcc": "cpp",
+        "cmath": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "deque": "cpp",
+        "list": "cpp",
+        "unordered_map": "cpp",
+        "vector": "cpp",
+        "exception": "cpp",
+        "initializer_list": "cpp",
+        "limits": "cpp",
+        "new": "cpp",
+        "type_traits": "cpp",
+        "typeinfo": "cpp"
     }
 }
