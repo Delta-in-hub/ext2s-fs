@@ -39,13 +39,18 @@ public:
     }
     void write_block(unsigned block_num, const void *buf)
     {
+        static size_t cnt = 0;
         assert(block_num < DISK_SIZE / BLOCK_SIZE);
         assert(buf != nullptr);
         lseek(_fd, block_num * BLOCK_SIZE, SEEK_SET);
         auto s = write(_fd, buf, BLOCK_SIZE);
         assert(s == BLOCK_SIZE);
-        s = fsync(_fd);
-        assert(s == 0);
+        if (cnt++ > 4096)
+        {
+            cnt = 0;
+            s = fsync(_fd); // ! HUGE DAMAGE TO PERFORMANCE !
+            assert(s == 0);
+        }
     }
 };
 

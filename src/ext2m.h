@@ -6,6 +6,11 @@
 #include <time.h>
 #include "bitmap.h"
 
+/*
+ * TODOLISTS:
+ *   Not modify *_free_* variable
+ */
+
 #define EXT2M_I_BLOCK_END 0
 #define EXT2M_I_BLOCK_SPARSE 1
 
@@ -40,7 +45,7 @@ namespace Ext2m
         constexpr auto blocks_per_group = (AVAILABLE_BLOCK - REMAINING_BLOCK) / FULL_GROUP_COUNT;
         constexpr auto blocks_last_group = REMAINING_BLOCK;
 
-        constexpr auto group_desc_size = GROUP_COUNT * GROUP_DESC_SIZE;
+        constexpr auto group_desc_size = FULL_GROUP_COUNT * GROUP_DESC_SIZE;
 
         constexpr auto group_desc_block_count = ceil(group_desc_size, BLOCK_SIZE);
 
@@ -77,7 +82,7 @@ namespace Ext2m
         size_t inodes_table_block_count;
 
         ext2_super_block _superb;
-        ext2_group_desc _group_desc[];
+        ext2_group_desc *_group_desc;
 
         /**
          * @brief check if the disk is ext2-format disk
@@ -90,7 +95,7 @@ namespace Ext2m
             auto *sb = (ext2_super_block *)_buf;
             bool flag = true;
             flag &= sb->s_magic == EXT2_SUPER_MAGIC;
-            flag &= sb->s_log_block_size == log2(BLOCK_SIZE);
+            flag &= (1024 << (sb->s_log_block_size)) == BLOCK_SIZE;
             flag &= sb->s_first_data_block == 1;
             flag &= sb->s_inodes_per_group <= 8 * BLOCK_SIZE;
             flag &= sb->s_first_ino == EXT2_GOOD_OLD_FIRST_INO;
@@ -178,7 +183,7 @@ namespace Ext2m
         {
             for (size_t i = 0; i < group_desc_block_count; i++)
             {
-                _disk.write_block(get_group_group_desc_table_index(group_index) + i, _block + i * BLOCK_SIZE);
+                _disk.write_block(get_group_group_desc_table_index(group_index) + i, (uint8_t *)_block + i * BLOCK_SIZE);
             }
         }
 
@@ -281,8 +286,18 @@ namespace Ext2m
             _disk.read_block(1, _buf);
             auto *sb = (ext2_super_block *)_buf;
 
-            // TODO :
-            assert(0);
+            this->blocks_per_group = sb->s_blocks_per_group;
+            this->inodes_per_group = sb->s_inodes_per_group;
+            this->full_group_count = sb->s_inodes_count / sb->s_inodes_per_group;
+
+            auto _group_size = full_group_count * sizeof(ext2_group_desc);
+
+            //        constexpr auto group_desc_block_count = ceil(group_desc_size, BLOCK_SIZE);
+            this->group_desc_block_count = ceil(_group_size, BLOCK_SIZE);
+            //        constexpr auto inodes_table_size = inodes_per_group * INODE_SIZE;
+            // constexpr auto inodes_table_block_count = ceil(inodes_table_size, BLOCK_SIZE);
+
+            this->inodes_table_block_count = ceil(inodes_per_group * INODE_SIZE, BLOCK_SIZE);
         }
 
         /**
@@ -326,10 +341,21 @@ namespace Ext2m
                 format();
             else
                 read_info();
+            _disk.read_block(1, _buf);
+            this->_superb = *(ext2_super_block *)_buf;
+            this->_group_desc = new ext2_group_desc[full_group_count];
+            uint8_t *buf = new uint8_t[BLOCK_SIZE * group_desc_block_count];
+            for (int i = 0; i < group_desc_block_count; i++)
+            {
+                _disk.read_block(2 + i, buf + i * BLOCK_SIZE);
+            }
+            memcpy(_group_desc, buf, sizeof(ext2_group_desc) * full_group_count);
+            delete[] buf;
         };
         ~Ext2m()
         {
             sync();
+            delete[] _group_desc;
         }
         /**
          * @brief Synchronize cached writes to persistent storage
@@ -457,7 +483,7 @@ namespace Ext2m
 
             // Write the group descriptor table to the disk
             {
-                void *ptr = new uint8_t[BLOCK_SIZE * group_desc_block_count];
+                auto *ptr = new uint8_t[BLOCK_SIZE * group_desc_block_count];
                 memset(ptr, 0, BLOCK_SIZE * group_desc_block_count);
                 memcpy(ptr, group_desc, sizeof(group_desc));
                 for (size_t i = 0; i < full_group_count; i++)
