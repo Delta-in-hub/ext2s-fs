@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <tuple>
 
 constexpr unsigned BYTEINBITS = 8;
 constexpr uint8_t MSB = 0b10000000; // most significant bit of byte
@@ -18,6 +19,7 @@ class BitMap
 private:
     uint8_t *_data;
     unsigned _sizeInBytes;
+    unsigned _sizeInBits;
     int _whichByte(int pos) const
     {
         return pos / BYTEINBITS;
@@ -33,11 +35,17 @@ public:
      * @brief Construct a new Bit Map object
      *
      * @param data pointer to data
-     * @param size length in bytes
+     * @param size length in bits
      */
-    BitMap(void *data, unsigned size) : _data(static_cast<uint8_t *>(data)), _sizeInBytes(size)
+    BitMap(const void *data, unsigned size) : _sizeInBits(size)
     {
-        ;
+        _sizeInBytes = (_sizeInBits + BYTEINBITS - 1) / BYTEINBITS;
+        _data = new uint8_t[_sizeInBytes];
+        memcpy(_data, data, _sizeInBytes);
+    }
+    ~BitMap()
+    {
+        delete[] _data;
     }
 
     /**
@@ -46,9 +54,9 @@ public:
      * @param pos start position inclusve
      * @return if all bit is 1, return UINTMAX(-1), else return position
      */
-    uint32_t nextBit(uint32_t pos = 0, bool value = false)
+    uint32_t nextBit(uint32_t pos = 0, bool value = false) const
     {
-        while (pos < _sizeInBytes * BYTEINBITS)
+        while (pos < _sizeInBits)
         {
             if (get(pos) == value)
                 return pos;
@@ -57,11 +65,10 @@ public:
         return -1;
     }
 
-    uint32_t count(uint32_t p = 0, bool value = true)
+    uint32_t count(uint32_t p = 0, bool value = true) const
     {
-
         uint32_t cnt = 0;
-        while (p < _sizeInBytes * BYTEINBITS)
+        while (p < _sizeInBits)
         {
             if (get(p) == value)
                 cnt++;
@@ -119,13 +126,13 @@ public:
         memset(_data, 0xff, _sizeInBytes);
     }
 
-    /**
-     * @brief Get the Length of bitmap in bits
-     * @return bits length
-     */
-    unsigned getLength() const
+    unsigned size() const
     {
-        return _sizeInBytes * BYTEINBITS;
+        return _sizeInBits;
+    }
+    std::pair<const void *, unsigned> data() const
+    {
+        return std::make_pair((const void *)(_data), _sizeInBytes);
     }
 };
 #endif

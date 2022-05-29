@@ -4,6 +4,10 @@
 #include "cache.h"
 #include "config.h"
 #include <time.h>
+#include "bitmap.h"
+
+#define EXT2M_I_BLOCK_END 0
+#define EXT2M_I_BLOCK_SPARSE 1
 
 namespace Ext2m
 {
@@ -65,11 +69,15 @@ namespace Ext2m
     private:
         Cache &_disk;
         uint8_t _buf[BLOCK_SIZE];
+
         size_t full_group_count;
         size_t blocks_per_group;
         size_t inodes_per_group;
         size_t group_desc_block_count;
         size_t inodes_table_block_count;
+
+        ext2_super_block _superb;
+        ext2_group_desc _group_desc[];
 
         /**
          * @brief check if the disk is ext2-format disk
@@ -174,17 +182,150 @@ namespace Ext2m
             }
         }
 
+        /**
+         * @brief Get the inode object with its inode num.
+         * ! Caution: Not modify the inode bitmap
+         * @param inode_num
+         * @param inode
+         */
+        void get_inode(size_t inode_num, struct ext2_inode &inode)
+        {
+            assert(inode_num >= 1);
+            inode_num--;
+            size_t group_index = inode_num / inodes_per_group;
+            size_t ind = inode_num % inodes_per_group;
+            assert(group_index < full_group_count);
+            auto inode_table_block_ind = get_group_inode_table_index(group_index);
+            _disk.read_block(inode_table_block_ind, _buf);
+            auto *inode_table = (ext2_inode *)_buf;
+            inode = inode_table[ind];
+        }
+        /**
+         * @brief Write the inode object to the disk.
+         * ! Caution: Not modify the inode bitmap
+         * @param inode_num
+         * @param inode
+         */
+        void write_inode(size_t inode_num, const struct ext2_inode &inode)
+        {
+            assert(inode_num >= 1);
+            inode_num--;
+            size_t group_index = inode_num / inodes_per_group;
+            size_t ind = inode_num % inodes_per_group;
+            assert(group_index < full_group_count);
+            auto inode_table_block_ind = get_group_inode_table_index(group_index);
+            _disk.read_block(inode_table_block_ind, _buf);
+            auto *inode_table = (ext2_inode *)_buf;
+            inode_table[ind] = inode;
+            _disk.write_block(inode_table_block_ind, _buf);
+        }
+
+        /**
+         * @brief Get the block-group's {block bitmap} object
+         *
+         * @param group_index
+         * @return BitMap
+         */
+        BitMap get_group_block_bitmap(size_t group_index)
+        {
+            _disk.read_block(get_group_block_bitmap_index(group_index), _buf);
+            return BitMap(_buf, blocks_per_group);
+        }
+        /**
+         * @brief Get the block-group's {inode bitmap} object
+         *
+         * @param group_index
+         * @return BitMap
+         */
+        BitMap get_group_inode_bitmap(size_t group_index)
+        {
+            _disk.read_block(get_group_inode_bitmap_index(group_index), _buf);
+            return BitMap(_buf, inodes_per_group);
+        }
+        /**
+         * @brief Write the block-group's {block bitmap} object to the disk.
+         *
+         * @param group_index
+         * @param bitmap
+         */
+        void write_group_block_bitmap(size_t group_index, const BitMap &bitmap)
+        {
+            auto tmp = bitmap.data();
+            const void *buf = tmp.first;
+            unsigned size = tmp.second;
+            memset(_buf, 0, BLOCK_SIZE);
+            memcpy(_buf, buf, size);
+            _disk.write_block(get_group_block_bitmap_index(group_index), _buf);
+        }
+        /**
+         * @brief Write the block-group's {inode bitmap} object to the disk.
+         *
+         * @param group_index
+         * @param bitmap
+         */
+        void write_group_inode_bitmap(size_t group_index, const BitMap &bitmap)
+        {
+            auto tmp = bitmap.data();
+            const void *buf = tmp.first;
+            unsigned size = tmp.second;
+            memset(_buf, 0, BLOCK_SIZE);
+            memcpy(_buf, buf, size);
+            _disk.write_block(get_group_inode_bitmap_index(group_index), _buf);
+        }
+        /**
+         * @brief read nessary information from the super block.
+         *
+         */
+        void read_info()
+        {
+            _disk.read_block(1, _buf);
+            auto *sb = (ext2_super_block *)_buf;
+
+            // TODO :
+            assert(0);
+        }
+
+        /**
+         * @brief Get the free block indexes, and modify the block bitmap. Try to find the consecutive blocks in the same group firstly.
+         *
+         * @param group_id
+         * @param count
+         * @return std::vector<size_t> , if failed , return empty vector.
+         */
+        std::vector<size_t> get_free_block_indexes(size_t group_id, size_t count)
+        {
+            // For simplicity, just find any free block in any group
+            std::vector<size_t> ret;
+            for (size_t i = group_id; (i + 1) % full_group_count != group_id; i = (i + 1) % full_group_count)
+            {
+                size_t group_ind = get_group_index(i);
+                auto &&bitmap = get_group_block_bitmap(i);
+                size_t start = 0;
+                while (start != -1)
+                {
+                    start = bitmap.nextBit(start);
+                    if (start != -1)
+                    {
+                        ret.push_back(start + group_ind);
+                        bitmap.set(start);
+                        count--;
+                        if (count == 0)
+                        {
+                            return ret;
+                        }
+                    }
+                }
+            }
+            return {};
+        }
+
     public:
         Ext2m(Cache &cache) : _disk(cache)
         {
-            full_group_count = std::get<0>(block_group_calculation());
-            blocks_per_group = std::get<2>(block_group_calculation());
-            inodes_per_group = std::get<5>(block_group_calculation());
-            group_desc_block_count = std::get<4>(block_group_calculation());
-            inodes_table_block_count = std::get<6>(block_group_calculation());
-
             if (not check_is_ext2_format())
                 format();
+            else
+                read_info();
         };
         ~Ext2m()
         {
@@ -217,6 +358,12 @@ namespace Ext2m
             constexpr size_t inodes_table_block_count = std::get<6>(block_group_calculation());
             constexpr size_t data_block_count = std::get<7>(block_group_calculation());
 
+            this->blocks_per_group = blocks_per_group;
+            this->full_group_count = full_group_count;
+            this->group_desc_block_count = group_desc_block_count;
+            this->inodes_per_group = inodes_per_group;
+            this->inodes_table_block_count = inodes_table_block_count;
+
             /*
                 group_count maybe greater than full_group_count
                 caused by the last block group maybe smaller than the rest block group.
@@ -243,6 +390,7 @@ namespace Ext2m
                 super_block.s_mtime = time(NULL);
                 super_block.s_wtime = time(NULL);
                 super_block.s_mnt_count = 0;
+                // TODO:  maybe more than 1024
                 super_block.s_max_mnt_count = 1024;
                 super_block.s_magic = EXT2_SUPER_MAGIC;
                 super_block.s_state = EXT2_VALID_FS;
@@ -280,14 +428,6 @@ namespace Ext2m
                 super_block.s_first_meta_bg = 0;
             }
 
-            // Write the super block to the disk
-            memset(_buf, 0, BLOCK_SIZE);
-            memcpy(_buf, &super_block, sizeof(super_block));
-            for (size_t i = 0; i < full_group_count; i++)
-            {
-                write_super_block_to_group(i, _buf);
-            }
-
             // Initialize the group descriptor table
             // see ext2.pdf page 16
             ext2_group_desc group_desc[full_group_count];
@@ -304,12 +444,22 @@ namespace Ext2m
                 }
             }
 
+            // Some block used for supber block , group descriptor table, inode table, etc.
+            super_block.s_free_blocks_count -= (3 + group_desc_block_count + inodes_table_block_count) * full_group_count;
+
+            // Write the super block to the disk
+            memset(_buf, 0, BLOCK_SIZE);
+            memcpy(_buf, &super_block, sizeof(super_block));
+            for (size_t i = 0; i < full_group_count; i++)
+            {
+                write_super_block_to_group(i, _buf);
+            }
+
             // Write the group descriptor table to the disk
             {
                 void *ptr = new uint8_t[BLOCK_SIZE * group_desc_block_count];
                 memset(ptr, 0, BLOCK_SIZE * group_desc_block_count);
                 memcpy(ptr, group_desc, sizeof(group_desc));
-                // sizeof(ext2_group_desc);
                 for (size_t i = 0; i < full_group_count; i++)
                 {
                     write_group_desc_table_to_group(i, ptr);
@@ -321,19 +471,91 @@ namespace Ext2m
             for (size_t i = 0; i < full_group_count; i++)
             {
                 memset(_buf, 0, BLOCK_SIZE);
-                size_t start_ind = get_group_block_bitmap_index(i);
+                size_t start_ind = get_group_inode_bitmap_index(i);
                 size_t end_ind = get_group_index(i) + blocks_per_group;
                 while (start_ind < end_ind)
                 {
                     _disk.write_block(start_ind, _buf);
                     start_ind++;
                 }
+                auto &&bm = get_group_block_bitmap(i);
+                size_t _end = 3 + group_desc_block_count + inodes_table_block_count;
+                for (size_t _j = 0; _j < _end; _j++)
+                {
+                    bm.set(_j);
+                }
+                write_group_block_bitmap(i, bm);
             }
 
+            sync();
+
+            // // super_block.s_first_ino == 11
+
             // Add root directory
+            auto &&bm = get_group_inode_bitmap(0);
             // The root directory is Inode 2
-            // super_block.s_first_ino == 11
-            
+            bm.set(2);
+
+            // see ext2.pdf page 18
+            ext2_inode root_ino;
+            {
+                // Chmod 0755 (chmod a+rwx,g-w,o-w,ug-s,-t) sets permissions so that, (U)ser / owner can read, can write and can execute. (G)roup can read, can't write and can execute. (O)thers can read, can't write and can execute.
+                root_ino.i_mode = EXT2_S_IFDIR | 0755;
+                // root user always has uid =0 and gid = 0
+                root_ino.i_uid = 0;
+                root_ino.i_size = 0;
+                root_ino.i_atime = time(NULL);
+                root_ino.i_ctime = time(NULL);
+                root_ino.i_mtime = time(NULL);
+                root_ino.i_dtime = 0;
+                root_ino.i_gid = 0;
+                // root 's father is root itself
+                root_ino.i_links_count = 2;
+
+                root_ino.i_blocks = 1;
+                root_ino.i_flags = 0;
+
+                root_ino.i_generation = 0;
+                root_ino.i_file_acl = 0;
+                root_ino.i_dir_acl = 0;
+                root_ino.i_faddr = 0;
+
+                /*
+                In the original implementation of Ext2, a value of 0 in this array effectively terminated it with no further
+                block defined.
+                In sparse files, it is possible to have some blocks allocated and some others not yet allocated
+                with the value 0 being used to indicate which blocks are not yet allocated for this file.
+                */
+                memset(root_ino.i_block, 0, sizeof(root_ino.i_block));
+                auto &&tmp = get_free_block_indexes(0, 1);
+                root_ino.i_block[0] = tmp.front();
+                memset(_buf, 0, BLOCK_SIZE);
+                ext2_dir_entry_2 *dir_entry = (ext2_dir_entry_2 *)_buf;
+                size_t _offset = 0;
+                {
+                    dir_entry->inode = 2;
+                    dir_entry->name_len = 1;
+                    dir_entry->file_type = EXT2_FT_DIR;
+                    dir_entry->name[0] = '.';
+                    dir_entry->name[1] = 0;
+                    _offset += 8;
+                    _offset += dir_entry->name_len + 1;
+                    _offset = roundup(_offset, 4);
+                    dir_entry->rec_len = _offset;
+                }
+                dir_entry = (ext2_dir_entry_2 *)(_buf + _offset);
+                {
+                    dir_entry->inode = 2;
+                    dir_entry->name_len = 2;
+                    dir_entry->file_type = EXT2_FT_DIR;
+                    dir_entry->name[0] = '.';
+                    dir_entry->name[1] = '.';
+                    dir_entry->name[2] = 0;
+                    dir_entry->rec_len = BLOCK_SIZE - _offset;
+                }
+                _disk.write_block(root_ino.i_block[0], _buf);
+            }
+            sync();
         }
     };
 

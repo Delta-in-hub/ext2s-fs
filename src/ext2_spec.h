@@ -42,6 +42,33 @@ using __u32 = uint32_t;
 
 #define EXT2_GOOD_OLD_FIRST_INO 11
 
+#define EXT2_S_IFSOCK 0xC000 // socket
+#define EXT2_S_IFLNK 0xA000  // symbolic link
+#define EXT2_S_IFREG 0x8000  // regular file
+#define EXT2_S_IFBLK 0x6000  // block device
+#define EXT2_S_IFDIR 0x4000  // directory
+#define EXT2_S_IFCHR 0x2000  // character device
+#define EXT2_S_IFIFO 0x1000  // fifo
+
+#define EXT2_S_IRUSR 0x0100 // user read
+#define EXT2_S_IWUSR 0x0080 // user write
+#define EXT2_S_IXUSR 0x0040 // user execute
+#define EXT2_S_IRGRP 0x0020 // group read
+#define EXT2_S_IWGRP 0x0010 // group write
+#define EXT2_S_IXGRP 0x0008 // group execute
+#define EXT2_S_IROTH 0x0004 // others read
+#define EXT2_S_IWOTH 0x0002 // others write
+#define EXT2_S_IXOTH 0x0001 // others execute
+
+#define EXT2_FT_UNKNOWN 0x00  // unknown file type
+#define EXT2_FT_REG_FILE 0x01 // regular file
+#define EXT2_FT_DIR 0x02      // directory
+#define EXT2_FT_CHRDEV 0x03   // character device
+#define EXT2_FT_BLKDEV 0x04   // block device
+#define EXT2_FT_FIFO 0x05     // fifo
+#define EXT2_FT_SOCK 0x06     // socket
+#define EXT2_FT_SYMLINK 0x07  // symbolic link
+
 /*
  * Structure of the super block
  */
@@ -183,7 +210,7 @@ struct ext2_inode
     __le32 i_dtime;       /* Deletion Time */
     __le16 i_gid;         /* Low 16 bits of Group Id */
     __le16 i_links_count; /* Links count */
-    __le32 i_blocks;      /* Blocks count */
+    __le32 i_blocks;      /* Blocks count,Count of disk sectors (not Ext2 blocks) in use by this inode, not counting the actual inode structure nor directory entries linking to the inode. */
     __le32 i_flags;       /* File flags */
     union
     {
@@ -242,11 +269,12 @@ struct ext2_inode
  * bigger than 255 chars, it's safe to reclaim the extra byte for the
  * file_type field.
  *  Each entry is supplemented with \0 to multiples of 4.
+ *  Sum of rec_len is BLOCK_SIZE.
  */
 struct ext2_dir_entry_2
 {
     __le32 inode;   /* Inode number */
-    __le16 rec_len; /* Directory entry length ,  Must be a multiple of 4.*/
+    __le16 rec_len; /* Directory entry length */
     __u8 name_len;  /* Name length */
     __u8 file_type;
     char name[]; /* File name, up to EXT2_NAME_LEN */
