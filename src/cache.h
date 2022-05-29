@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <list>
 #include <string.h>
+#include <vector>
+#include <queue>
 // LRU CACHE FOR DISK
 class Cache
 {
@@ -11,145 +13,130 @@ private:
     Disk &_disk;
     const unsigned _capacity; // LRU CACHE CAPACITY
 
-    uint8_t *_data;
-    // dirty flag
-    __uint8_t *_dirty;
+    struct cache_item
+    {
+        uint8_t data[BLOCK_SIZE];
+        size_t block_idx;
+        bool dirty;
+        cache_item()
+        {
+            memset(data, 0, BLOCK_SIZE);
+            block_idx = -1;
+            dirty = false;
+        }
+    };
+    void _write_item_back(cache_item &item)
+    {
+        if (item.dirty)
+        {
+            _disk.write_block(item.block_idx, item.data);
+            item.dirty = false;
+        }
+    }
+    std::vector<cache_item> _cache;
+    std::queue<size_t> _free_postion;
 
-    // _array + BLOCK_SIZE * n(position in _data)
-    std::list<unsigned> _positon;
-    // block_num to position in _array
-    std::unordered_map<unsigned, std::list<unsigned>::iterator> _b_to_p;
-    // position to block_num
-    std::unordered_map<unsigned, unsigned> _p_to_b;
-    void flushp(unsigned position)
+    std::list<size_t /*position in _cache*/> _lru_list; // Most Recently Used List , the back one is LRU.
+    std::unordered_map<size_t /*block_index*/, decltype(_lru_list.begin())> _lru_map;
+
+    void _update(decltype(_lru_list.begin()) &it)
     {
-        auto it = _p_to_b.find(position);
-        assert(it != _p_to_b.end());
-        auto block_num = it->second;
-        if (_dirty[position])
-        {
-            _disk.write_block(block_num, _data + position * BLOCK_SIZE);
-            _dirty[position] = 0;
-        }
+        auto pos = *it;
+        _lru_list.erase(it);
+        _lru_list.push_front(pos);
+        _lru_map[_cache[pos].block_idx] = _lru_list.begin();
     }
-    void pop_cache()
+
+    ssize_t _get_avaiable_pos()
     {
-        assert(_positon.size() > 0);
-        auto p = _positon.back();
-        if (_dirty[p])
-        {
-            flushp(p);
-        }
-        _positon.pop_back();
-        auto bp = _p_to_b.find(p);
-        assert(bp != _p_to_b.end());
-        auto b = bp->second;
-        _p_to_b.erase(p);
-        _b_to_p.erase(b);
+        if (_free_postion.empty())
+            return -1;
+        ssize_t pos = _free_postion.front();
+        _free_postion.pop();
+        return pos;
     }
-    auto get_block_to_cache(unsigned block_num)
+
+    void _free_lru()
     {
-        if (_positon.size() >= _capacity)
-        {
-            pop_cache();
-        }
-        assert(_positon.size() < _capacity);
-        assert(_b_to_p.find(block_num) == _b_to_p.end());
-        auto p = get_avaiable_position();
-        assert(p != -1);
-        _disk.read_block(block_num, _data + p * BLOCK_SIZE);
-        _positon.push_front(p);
-        _b_to_p[block_num] = _positon.begin();
-        _p_to_b[p] = block_num;
-        _dirty[p] = 0;
-        return p;
+        assert(!_lru_list.empty());
+        auto pos = _lru_list.back();
+        cache_item &item = _cache[pos];
+        _lru_list.pop_back();
+        _lru_map.erase(item.block_idx);
+        _write_item_back(item);
+        item.block_idx = -1;
+        _free_postion.push(pos);
     }
-    int get_avaiable_position()
+
+    void _get_block_from_disk(size_t block_idx)
     {
-        for (int i = 0; i < _capacity; i++)
-        {
-            if (_p_to_b.count(i) == 0)
-            {
-                assert(_dirty[i] == 0);
-                return i;
-            }
-        }
-        return -1;
-    }
-    void update(unsigned block_num)
-    {
-        auto it = _b_to_p.find(block_num);
-        assert(it != _b_to_p.end());
-        auto p = it->second;
-        auto np = *p;
-        _positon.erase(p);
-        _positon.push_front(np);
+        assert(_lru_map.count(block_idx) == 0);
+        if (_free_postion.empty())
+            _free_lru();
+        ssize_t pos = _get_avaiable_pos();
+        assert(pos != -1);
+        cache_item &item = _cache[pos];
+        assert(item.block_idx == -1);
+        item.block_idx = block_idx;
+        item.dirty = false;
+        _disk.read_block(block_idx, item.data);
+        _lru_list.push_front(pos);
+        _lru_map[block_idx] = _lru_list.begin();
     }
 
 public:
     Cache(Disk &disk, unsigned capacity = 1024) : _disk(disk), _capacity(capacity)
     {
-        _data = new uint8_t[BLOCK_SIZE * _capacity];
-        memset(_data, 0, BLOCK_SIZE * _capacity);
-        _dirty = new uint8_t[_capacity];
-        memset(_dirty, 0, _capacity);
+        _cache.resize(capacity);
+        for (size_t i = 0; i < capacity; i++)
+        {
+            _free_postion.push(i);
+        }
     };
     ~Cache()
     {
         flush_all();
-        delete[] _data;
-        delete[] _dirty;
     }
-    void flushb(unsigned block_num)
+    void flushb(unsigned block_index)
     {
-        auto it = _b_to_p.find(block_num);
-        assert(it != _b_to_p.end());
-        auto p = *(it->second);
-        if (_dirty[p])
-        {
-            _disk.write_block(block_num, _data + p * BLOCK_SIZE);
-            _dirty[p] = 0;
-        }
+        auto it = _lru_map.find(block_index);
+        assert(it != _lru_map.end());
+        auto pos = *(it->second);
+        _write_item_back(_cache[pos]);
     }
 
     void flush_all()
     {
-        for (auto it = _positon.begin(); it != _positon.end(); it++)
+        for (auto &&item : _cache)
         {
-            flushp(*it);
+            _write_item_back(item);
         }
     }
 
-    void read_block(unsigned block_num, void *buf)
+    void read_block(unsigned block_index, void *buf)
     {
-        assert(block_num < DISK_SIZE / BLOCK_SIZE);
+        assert(block_index < DISK_SIZE / BLOCK_SIZE);
         assert(buf != nullptr);
-        void *ptr = nullptr;
-        auto it = _b_to_p.find(block_num);
-        auto p = 0ul;
-        if (it == _b_to_p.end())
-            p = get_block_to_cache(block_num);
-        else
-            p = *(it->second);
-        ptr = _data + BLOCK_SIZE * p;
-        memcpy(buf, ptr, BLOCK_SIZE);
-        update(block_num);
+        if (_lru_map.count(block_index) == 0)
+            _get_block_from_disk(block_index);
+        auto it = _lru_map.find(block_index);
+        assert(it != _lru_map.end());
+        auto pos = *(it->second);
+        memcpy(buf, _cache[pos].data, BLOCK_SIZE);
+        _update(it->second);
     }
-    void write_block(unsigned block_num, const void *buf)
+    void write_block(unsigned block_index, const void *buf)
     {
-        assert(block_num < DISK_SIZE / BLOCK_SIZE);
+        assert(block_index < DISK_SIZE / BLOCK_SIZE);
         assert(buf != nullptr);
-        void *ptr = nullptr;
-        auto it = _b_to_p.find(block_num);
-        auto p = 0ul;
-        if (it == _b_to_p.end())
-            p = get_block_to_cache(block_num);
-        else
-            p = *(it->second);
-        ptr = _data + BLOCK_SIZE * p;
-        _dirty[p] = 1;
-        memcpy(ptr, buf, BLOCK_SIZE);
-        update(block_num);
+        if (_lru_map.count(block_index) == 0)
+            _get_block_from_disk(block_index);
+        auto it = _lru_map.find(block_index);
+        assert(it != _lru_map.end());
+        auto pos = *(it->second);
+        memcpy(_cache[pos].data, buf, BLOCK_SIZE);
+        _cache[pos].dirty = true;
+        _update(it->second);
     }
 };
 #endif // __CACHE_H__
