@@ -307,7 +307,7 @@ namespace Ext2m
          * @param count
          * @return std::vector<size_t> , if failed , return empty vector.
          */
-        std::vector<size_t> get_free_block_indexes(size_t group_id, size_t count)
+        std::vector<size_t> find_free_block_indexes(size_t group_id, size_t count)
         {
             // For simplicity, just find any free block in any group
             std::vector<size_t> ret;
@@ -315,6 +315,7 @@ namespace Ext2m
             {
                 size_t group_ind = get_group_index(i);
                 auto &&bitmap = get_group_block_bitmap(i);
+                bool _bitmap_changed = false;
                 size_t start = 0;
                 while (start != -1)
                 {
@@ -323,15 +324,53 @@ namespace Ext2m
                     {
                         ret.push_back(start + group_ind);
                         bitmap.set(start);
+                        _bitmap_changed = true;
                         count--;
                         if (count == 0)
                         {
+                            write_group_block_bitmap(i, bitmap);
                             return ret;
                         }
                     }
                 }
+                if (_bitmap_changed)
+                {
+                    write_group_block_bitmap(i, bitmap);
+                }
             }
             return {};
+        }
+
+        /**
+         * @brief Find an avaialble inode index, and modify the inode bitmap.
+         *
+         * @return inode num , if failed , return 0.
+         */
+        size_t find_free_inode_num()
+        {
+            for (size_t i = 0; i < full_group_count; i++)
+            {
+                // inode num starts from 1
+                size_t start_inode_n = i * inodes_per_group + 1;
+                auto &&bitmap = get_group_inode_bitmap(i);
+                size_t start = 0;
+                while (start != -1)
+                {
+                    start = bitmap.nextBit(start);
+                    if (start != -1)
+                    {
+                        if (start + start_inode_n < _superb.s_first_ino)
+                        {
+                            start++;
+                            continue;
+                        }
+                        bitmap.set(start);
+                        write_group_inode_bitmap(i, bitmap);
+                        return start + start_inode_n;
+                    }
+                }
+            }
+            return 0;
         }
 
     public:
@@ -553,7 +592,7 @@ namespace Ext2m
                 with the value 0 being used to indicate which blocks are not yet allocated for this file.
                 */
                 memset(root_ino.i_block, 0, sizeof(root_ino.i_block));
-                auto &&tmp = get_free_block_indexes(0, 1);
+                auto &&tmp = find_free_block_indexes(0, 1);
                 root_ino.i_block[0] = tmp.front();
                 memset(_buf, 0, BLOCK_SIZE);
                 ext2_dir_entry_2 *dir_entry = (ext2_dir_entry_2 *)_buf;

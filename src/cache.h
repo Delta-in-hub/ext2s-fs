@@ -111,6 +111,7 @@ public:
         {
             _write_item_back(item);
         }
+        _disk.sync();
     }
 
     void read_block(unsigned block_index, void *buf)

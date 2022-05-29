@@ -52,6 +52,11 @@ public:
             assert(s == 0);
         }
     }
+    void sync()
+    {
+        auto s = fsync(_fd);
+        assert(s == 0);
+    }
 };
 
 #endif
