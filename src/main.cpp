@@ -19,5 +19,16 @@ int main(void)
     vfs.ls("/home/delta");
     vfs.ls("/");
     vfs.ls("/home");
+
+    int fd;
+    // const char *content = "Hello World!";
+    // fd = vfs.open("/home/delta/Readme.txt", O_RDWR);
+    // auto s1 = vfs.write(fd, content, strlen(content) + 1);
+    // vfs.close(fd);
+    fd = vfs.open("/home/delta/Readme.txt", O_RDWR);
+    char buf[1024];
+    auto s2 = vfs.read(fd, buf, 1024);
+    cout << buf << endl;
+
     return 0;
 }

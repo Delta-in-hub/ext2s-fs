@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <iostream>
+#include <fcntl.h>
 
 class VFS
 {
@@ -27,6 +28,7 @@ class VFS
         }
         if (not creat)
             return -1;
+
         auto newid = _ext2.ialloc();
         if (newid == 0)
             return -1;
@@ -143,11 +145,89 @@ class VFS
         }
         return 0;
     }
+    struct file_description
+    {
+        uint32_t inode_idx;
+        uint32_t offset;
+        int flag;
+    };
+    std::vector<file_description> _files;
+
+    int get_avaiable_fd()
+    {
+        int i = 3;
+        for (; i < _files.size(); i++)
+        {
+            if (_files[i].inode_idx == 0)
+                return i;
+        }
+        _files.push_back({0, 0, 0});
+        return i;
+    }
+
+    bool check_fd(int fd)
+    {
+        if (fd < 0 || fd >= _files.size())
+            return false;
+        return _files[fd].inode_idx != 0;
+    }
+
+    bool check_writeable(int flag)
+    {
+        if ((flag & O_ACCMODE) == O_RDONLY)
+            return false;
+        else if ((flag & O_ACCMODE) == O_WRONLY)
+            return true;
+        else if ((flag & O_ACCMODE) == O_RDWR)
+            return true;
+        else
+            return false;
+    }
+    bool check_readable(int flag)
+    {
+        if ((flag & O_ACCMODE) == O_RDONLY)
+            return true;
+        else if ((flag & O_ACCMODE) == O_WRONLY)
+            return false;
+        else if ((flag & O_ACCMODE) == O_RDWR)
+            return true;
+        else
+            return false;
+    }
+
+    int open_file_from_root(const char *absolute_path, int flag)
+    {
+        // flag : O_RDONLY, O_WRONLY, O_RDWR
+        // check if flag contains O_CREAT
+
+        assert(absolute_path[0] == '/');
+        auto &&paths = split(absolute_path, "/");
+        uint32_t inode_idx = ROOT_INODE;
+        for (auto &&i : paths)
+        {
+            auto idx = find_dir_from_inode(inode_idx, i);
+            if (idx == -1)
+                return -1;
+            inode_idx = idx;
+        }
+        file_description _fdd;
+        _fdd.flag = flag;
+        _fdd.inode_idx = inode_idx;
+        ext2_inode inode;
+        _ext2.get_inode(inode_idx, inode);
+        if ((inode.i_mode & EXT2_S_IFMT) != EXT2_S_IFREG)
+            return -1;
+        _fdd.offset = 0;
+        auto fd = get_avaiable_fd();
+        _files[fd] = _fdd;
+        return fd;
+    }
 
 public:
     VFS(Ext2m::Ext2m &ext2) : _ext2(ext2)
     {
-        ;
+        // 0,1,2 for stdin,stdout,stderr
+        _files.resize(3);
     }
     ~VFS()
     {
@@ -155,27 +235,188 @@ public:
     }
     int open(const char *path, int flags)
     {
-        ;
+        auto str = pwd();
+        str += path;
+        if ((flags & ~O_ACCMODE) == O_CREAT)
+        {
+            create(path);
+        }
+        return open_file_from_root(str.c_str(), flags);
     }
     int close(int fd)
     {
-        ;
+        if (!check_fd(fd))
+            return -1;
+        _files[fd].inode_idx = 0;
+        _files[fd].flag = 0;
+        _files[fd].offset = 0;
+        return 0;
     }
     ssize_t read(int fd, void *buf, size_t count)
     {
-        ;
+        if (!check_fd(fd))
+            return -1;
+        if (count == 0)
+            return 0;
+        auto &&_fd = _files[fd];
+        if (not check_readable(_fd.flag))
+            return -1;
+        ext2_inode inode;
+        _ext2.get_inode(_fd.inode_idx, inode);
+        if (_fd.offset >= inode.i_size)
+            return 0;
+        size_t real_read_size = 0;
+        if (_fd.offset + count > inode.i_size)
+            real_read_size = inode.i_size - _fd.offset;
+        else
+            real_read_size = count;
+        auto &&all_blocks = _ext2.get_inode_all_blocks(_fd.inode_idx);
+
+        auto start_block = _fd.offset / BLOCK_SIZE;
+        auto start_offset = _fd.offset % BLOCK_SIZE;
+        auto end_block = (_fd.offset + real_read_size) / BLOCK_SIZE;
+        auto end_offset = (_fd.offset + real_read_size) % BLOCK_SIZE;
+
+        if (start_block == end_block)
+        {
+            _ext2._disk.read_block(all_blocks[start_block], _buf);
+            memcpy(buf, _buf + start_offset, real_read_size);
+        }
+        else
+        {
+            for (auto i = start_block; i <= end_block; i++)
+            {
+                _ext2._disk.read_block(all_blocks[i], _buf);
+                if (i == start_block)
+                {
+                    memcpy(buf, _buf + start_offset, BLOCK_SIZE - start_offset);
+                    buf = (uint8_t *)buf + BLOCK_SIZE - start_offset;
+                }
+                else if (i == end_block)
+                {
+                    memcpy(buf, _buf, end_offset);
+                }
+                else
+                {
+                    memcpy(buf, _buf, BLOCK_SIZE);
+                    buf = (uint8_t *)buf + BLOCK_SIZE;
+                }
+            }
+        }
+
+        return real_read_size;
     }
-    ssize_t write(int fd, const void *buf, size_t count)
+    ssize_t write(int fd, const void *buf, uint32_t count)
     {
-        ;
+        if (!check_fd(fd))
+            return -1;
+        if (count == 0)
+            return 0;
+        auto &&_fd = _files[fd];
+        if (not check_writeable(_fd.flag))
+            return -1;
+        auto inode_idx = _fd.inode_idx;
+        auto offset = _fd.offset;
+        ext2_inode inode;
+        _ext2.get_inode(inode_idx, inode);
+        inode.i_size = std::max(inode.i_size, offset + count);
+        _ext2.write_inode(inode_idx, inode);
+
+        auto &&all_blocks = _ext2.get_inode_all_blocks(inode_idx);
+
+        auto start_block = offset / BLOCK_SIZE;
+        auto start_offset = offset % BLOCK_SIZE;
+        auto end_block = (offset + count) / BLOCK_SIZE;
+        auto end_offset = (offset + count) % BLOCK_SIZE;
+        // TODO :SPARSE FILE SUPPORT
+
+        if (end_block >= all_blocks.size())
+        {
+            int cnt = end_block - all_blocks.size() + 1;
+            while (cnt--)
+            {
+                _ext2.add_block_to_inode(inode_idx);
+            }
+            all_blocks = _ext2.get_inode_all_blocks(inode_idx);
+        }
+
+        if (start_block == end_block)
+        {
+            _ext2._disk.read_block(all_blocks[start_block], _buf);
+            memcpy(_buf + start_offset, buf, count);
+            _ext2._disk.write_block(all_blocks[start_block], _buf);
+        }
+        else
+        {
+            for (int i = start_block; i <= end_block; i++)
+            {
+                auto &&block = all_blocks[i];
+
+                if (i == start_block)
+                {
+                    _ext2._disk.read_block(block, _buf);
+                    memcpy(_buf + start_offset, buf, BLOCK_SIZE - start_offset);
+                    _ext2._disk.write_block(block, _buf);
+                    buf = (uint8_t *)(buf) + BLOCK_SIZE - start_offset;
+                }
+                else if (i == end_block)
+                {
+                    _ext2._disk.read_block(block, _buf);
+                    memcpy(_buf, buf, end_offset);
+                    _ext2._disk.write_block(block, _buf);
+                }
+                else
+                {
+                    _ext2._disk.read_block(block, _buf);
+                    memcpy(_buf, buf, BLOCK_SIZE);
+                    _ext2._disk.write_block(block, _buf);
+                    buf = (uint8_t *)(buf) + BLOCK_SIZE;
+                }
+            }
+        }
+        _fd.offset += count;
+        return count;
     }
     off_t lseek(int fd, off_t offset, int whence)
     {
-        ;
+        if (!check_fd(fd))
+            return -1;
+        ext2_inode inode;
+        auto inode_idx = _files[fd].inode_idx;
+        _ext2.get_inode(inode_idx, inode);
+        switch (whence)
+        {
+        case SEEK_SET:
+            _files[fd].offset = offset;
+            break;
+        case SEEK_CUR:
+            _files[fd].offset += offset;
+            break;
+        case SEEK_END:
+            _files[fd].offset = inode.i_size + offset;
+            break;
+        default:
+            return -1;
+        }
+        return _files[fd].offset;
     }
     int fstat(int fd, struct stat *buf)
     {
-        ;
+        if (!check_fd(fd))
+            return -1;
+        ext2_inode inode;
+        auto inode_idx = _files[fd].inode_idx;
+        _ext2.get_inode(inode_idx, inode);
+        buf->st_ino = inode_idx;
+        buf->st_mode = inode.i_mode;
+        buf->st_size = inode.i_size;
+        buf->st_nlink = inode.i_links_count;
+        buf->st_uid = inode.i_uid;
+        buf->st_gid = inode.i_gid;
+        buf->st_atime = inode.i_atime;
+        buf->st_mtime = inode.i_mtime;
+        buf->st_ctime = inode.i_ctime;
+        return 0;
     }
     int stat(const char *path, struct stat *buf)
     {

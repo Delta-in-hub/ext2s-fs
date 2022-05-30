@@ -46,6 +46,9 @@ using __u32 = uint32_t;
 
 #define EXT2_GOOD_OLD_FIRST_INO 11
 
+// S_IFMT (0170000)
+#define EXT2_S_IFMT 0170000
+
 #define EXT2_S_IFSOCK 0xC000 // socket
 #define EXT2_S_IFLNK 0xA000  // symbolic link
 #define EXT2_S_IFREG 0x8000  // regular file

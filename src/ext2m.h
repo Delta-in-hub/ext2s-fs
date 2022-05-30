@@ -743,13 +743,13 @@ namespace Ext2m
             inode.i_ctime = time(NULL);
             inode.i_mtime = inode.i_ctime;
             inode.i_atime = inode.i_ctime;
+            inode.i_size = 0;
         }
 
         Ext2m(Cache &cache) : _disk(cache)
         {
-            format();
             if (not check_is_ext2_format())
-                ;
+                format();
             else
                 read_info();
             _disk.read_block(1, _buf);
