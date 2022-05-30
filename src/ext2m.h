@@ -39,7 +39,7 @@ namespace Ext2m
         // only for BLOCK_SIZE = 1KB
         constexpr auto AVAILABLE_BLOCK = TOTAL_BLOCK - 1;
 
-        constexpr auto MAX_INODES_PER_GROUP = 8 * BLOCK_SIZE;
+        // constexpr auto MAX_INODES_PER_GROUP = 8 * BLOCK_SIZE;
 
         constexpr auto FULL_GROUP_COUNT = AVAILABLE_BLOCK / MAX_BLOCKS_PER_GROUP;
         constexpr auto REMAINING_BLOCK = AVAILABLE_BLOCK - MAX_BLOCKS_PER_GROUP * FULL_GROUP_COUNT;
@@ -331,11 +331,11 @@ namespace Ext2m
                 size_t group_ind = get_group_index(i);
                 auto &&bitmap = get_block_bitmap(i);
                 bool _bitmap_changed = false;
-                size_t start = 0;
-                while (start != -1)
+                uint32_t start = 0;
+                while (start != (uint32_t)-1)
                 {
                     start = bitmap.nextBit(start);
-                    if (start != -1)
+                    if (start != (uint32_t)-1)
                     {
                         ret.push_back(start + group_ind);
                         bitmap.set(start);
@@ -369,11 +369,11 @@ namespace Ext2m
                 // inode num starts from 1
                 size_t start_inode_n = i * inodes_per_group + 1;
                 auto &&bitmap = get_inode_bitmap(i);
-                size_t start = 0;
-                while (start != -1)
+                uint32_t start = 0;
+                while (start != (uint32_t)-1)
                 {
                     start = bitmap.nextBit(start);
-                    if (start != -1)
+                    if (start != (uint32_t)-1)
                     {
                         if (start + start_inode_n < _superb.s_first_ino)
                         {
@@ -606,7 +606,7 @@ namespace Ext2m
         struct entry_block
         {
         private:
-            uint8_t *_now, *_end, *_block;
+            uint8_t *_block, *_now, *_end;
 
         public:
             entry_block() = delete;
@@ -700,7 +700,7 @@ namespace Ext2m
                 }
             }
             auto n = add_block_to_inode(inode_num);
-            assert(n != -1);
+            assert(n != (uint32_t)-1);
             init_entry_block(_buf, inode_num, get_father_inode_num(inode_num));
             entry_block eb(_buf);
             bool flag = eb.add_entry(ent);
@@ -756,7 +756,7 @@ namespace Ext2m
             this->_superb = *(ext2_super_block *)_buf;
             this->_group_desc = new ext2_group_desc[full_group_count];
             uint8_t *buf = new uint8_t[BLOCK_SIZE * group_desc_block_count];
-            for (int i = 0; i < group_desc_block_count; i++)
+            for (size_t i = 0; i < group_desc_block_count; i++)
             {
                 _disk.read_block(2 + i, buf + i * BLOCK_SIZE);
             }
@@ -787,13 +787,13 @@ namespace Ext2m
 
             // Calculate the arguments of ext2
             constexpr size_t full_group_count = std::get<0>(block_group_calculation());
-            constexpr size_t group_count = std::get<1>(block_group_calculation());
-            constexpr size_t blocks_per_group = std::get<2>(block_group_calculation());
-            constexpr size_t blocks_last_group = std::get<3>(block_group_calculation());
+            // constexpr size_t group_count = std::get<1>(block_group_calculation());
+            // constexpr size_t blocks_per_group = std::get<2>(block_group_calculation());
+            // constexpr size_t blocks_last_group = std::get<3>(block_group_calculation());
             constexpr size_t group_desc_block_count = std::get<4>(block_group_calculation());
             constexpr size_t inodes_per_group = std::get<5>(block_group_calculation());
             constexpr size_t inodes_table_block_count = std::get<6>(block_group_calculation());
-            constexpr size_t data_block_count = std::get<7>(block_group_calculation());
+            // constexpr size_t data_block_count = std::get<7>(block_group_calculation());
 
             this->blocks_per_group = blocks_per_group;
             this->full_group_count = full_group_count;

@@ -155,7 +155,7 @@ class VFS
 
     int get_avaiable_fd()
     {
-        int i = 3;
+        size_t i = 3;
         for (; i < _files.size(); i++)
         {
             if (_files[i].inode_idx == 0)
@@ -167,7 +167,7 @@ class VFS
 
     bool check_fd(int fd)
     {
-        if (fd < 0 || fd >= _files.size())
+        if (fd < 0 || fd >= (int)(_files.size()))
             return false;
         return _files[fd].inode_idx != 0;
     }
@@ -348,7 +348,7 @@ public:
         }
         else
         {
-            for (int i = start_block; i <= end_block; i++)
+            for (size_t i = start_block; i <= end_block; i++)
             {
                 auto &&block = all_blocks[i];
 
@@ -440,15 +440,16 @@ public:
 
     int rmdir(const char *path)
     {
-        ;
+        return -1;
     }
     int unlink(const char *path)
     {
-        ;
+        return -1;
     }
     int delet(const char *path)
     {
         unlink(path);
+        return -1;
     }
     int create(const char *path)
     {
@@ -463,7 +464,7 @@ public:
     // TODO
     int rename(const char *oldpath, const char *newpath)
     {
-        ;
+        return -1;
     }
 };
 

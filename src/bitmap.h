@@ -98,19 +98,19 @@ public:
      * @return true for 1b
      * @return false for 0b
      */
-    bool get(int pos) const
+    bool get(unsigned pos) const
     {
         assert(pos >= 0 and pos < _sizeInBytes * BYTEINBITS);
         return (_data[_whichByte(pos)] & _getMask(pos)) != 0;
     }
 
-    void set(int pos)
+    void set(unsigned pos)
     {
         assert(pos >= 0 and pos < _sizeInBytes * BYTEINBITS);
         _data[_whichByte(pos)] |= _getMask(pos);
     }
 
-    void reset(int pos)
+    void reset(unsigned pos)
     {
         assert(pos >= 0 and pos < _sizeInBytes * BYTEINBITS);
         _data[_whichByte(pos)] &= (~_getMask(pos));

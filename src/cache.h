@@ -21,13 +21,13 @@ private:
         cache_item()
         {
             memset(data, 0, BLOCK_SIZE);
-            block_idx = -1;
+            block_idx = (size_t)-1;
             dirty = false;
         }
     };
     void _write_item_back(cache_item &item)
     {
-        if (item.dirty and item.block_idx != -1)
+        if (item.dirty and item.block_idx != (size_t)-1)
         {
             _disk.write_block(item.block_idx, item.data);
             item.dirty = false;
@@ -76,7 +76,7 @@ private:
         ssize_t pos = _get_avaiable_pos();
         assert(pos != -1);
         cache_item &item = _cache[pos];
-        assert(item.block_idx == -1);
+        assert(item.block_idx == (size_t)-1);
         item.block_idx = block_idx;
         item.dirty = false;
         _disk.read_block(block_idx, item.data);

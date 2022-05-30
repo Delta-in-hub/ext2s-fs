@@ -27,7 +27,7 @@ int main(void)
     // vfs.close(fd);
     fd = vfs.open("/home/delta/Readme.txt", O_RDWR);
     char buf[1024];
-    auto s2 = vfs.read(fd, buf, 1024);
+    vfs.read(fd, buf, 1024);
     cout << buf << endl;
 
     return 0;
