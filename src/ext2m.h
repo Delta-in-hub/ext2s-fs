@@ -788,7 +788,7 @@ namespace Ext2m
             // Calculate the arguments of ext2
             constexpr size_t full_group_count = std::get<0>(block_group_calculation());
             // constexpr size_t group_count = std::get<1>(block_group_calculation());
-            // constexpr size_t blocks_per_group = std::get<2>(block_group_calculation());
+            constexpr size_t blocks_per_group = std::get<2>(block_group_calculation());
             // constexpr size_t blocks_last_group = std::get<3>(block_group_calculation());
             constexpr size_t group_desc_block_count = std::get<4>(block_group_calculation());
             constexpr size_t inodes_per_group = std::get<5>(block_group_calculation());
