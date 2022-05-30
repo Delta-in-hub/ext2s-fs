@@ -68,11 +68,6 @@ Note that although both the superblock and the group descriptors are duplicated 
 
 `get_inode`
 
-
-
 `get_block`
 
-
-
 `get_entry`
-

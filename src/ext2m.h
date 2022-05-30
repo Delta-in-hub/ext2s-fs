@@ -5,6 +5,8 @@
 #include "config.h"
 #include <time.h>
 #include "bitmap.h"
+#include <memory>
+#include <functional>
 
 /*
  * TODOLISTS:
@@ -71,7 +73,7 @@ namespace Ext2m
 
     class Ext2m
     {
-    private:
+    public:
         Cache &_disk;
         uint8_t _buf[BLOCK_SIZE];
 
@@ -120,7 +122,7 @@ namespace Ext2m
          * @param group_index
          * @return group's super block index
          */
-        unsigned get_group_super_block_index(size_t group_index)
+        unsigned get_super_block_index(size_t group_index)
         {
             return get_group_index(group_index) + 0;
         }
@@ -130,7 +132,7 @@ namespace Ext2m
          * @param group_index
          * @return group descriptor table first block index
          */
-        unsigned get_group_group_desc_table_index(size_t group_index)
+        unsigned get_group_desc_table_index(size_t group_index)
         {
             return get_group_index(group_index) + 1;
         }
@@ -140,9 +142,9 @@ namespace Ext2m
          * @param group_index
          * @return block index
          */
-        unsigned get_group_block_bitmap_index(size_t group_index)
+        unsigned get_block_bitmap_index(size_t group_index)
         {
-            return get_group_group_desc_table_index(group_index) + group_desc_block_count;
+            return get_group_desc_table_index(group_index) + group_desc_block_count;
         }
 
         /**
@@ -150,18 +152,18 @@ namespace Ext2m
          * @param group_index
          * @return block index
          */
-        unsigned get_group_inode_bitmap_index(size_t group_index)
+        unsigned get_inode_bitmap_index(size_t group_index)
         {
-            return get_group_block_bitmap_index(group_index) + 1;
+            return get_block_bitmap_index(group_index) + 1;
         }
         /**
          * @brief Get the group's {inode table} first block index
          * @param group_index
          * @return block index
          */
-        unsigned get_group_inode_table_index(size_t group_index)
+        unsigned get_inode_table_index(size_t group_index)
         {
-            return get_group_inode_bitmap_index(group_index) + 1;
+            return get_inode_bitmap_index(group_index) + 1;
         }
 
         /**
@@ -169,21 +171,21 @@ namespace Ext2m
          * @param group_index
          * @return block index
          */
-        unsigned get_group_data_table_index(size_t group_index)
+        unsigned get_data_table_index(size_t group_index)
         {
-            return get_group_inode_table_index(group_index) + inodes_table_block_count;
+            return get_inode_table_index(group_index) + inodes_table_block_count;
         }
 
-        void write_super_block_to_group(size_t group_index, void *_block)
+        void write_super_block(size_t group_index, void *_block)
         {
-            _disk.write_block(get_group_super_block_index(group_index), _block);
+            _disk.write_block(get_super_block_index(group_index), _block);
         }
 
-        void write_group_desc_table_to_group(size_t group_index, void *_block)
+        void write_group_desc_table(size_t group_index, void *_block)
         {
             for (size_t i = 0; i < group_desc_block_count; i++)
             {
-                _disk.write_block(get_group_group_desc_table_index(group_index) + i, (uint8_t *)_block + i * BLOCK_SIZE);
+                _disk.write_block(get_group_desc_table_index(group_index) + i, (uint8_t *)_block + i * BLOCK_SIZE);
             }
         }
 
@@ -200,11 +202,12 @@ namespace Ext2m
             size_t group_index = inode_num / inodes_per_group;
             size_t ind = inode_num % inodes_per_group;
             assert(group_index < full_group_count);
-            auto inode_table_block_ind = get_group_inode_table_index(group_index);
+            auto inode_table_block_ind = get_inode_table_index(group_index);
             _disk.read_block(inode_table_block_ind, _buf);
             auto *inode_table = (ext2_inode *)_buf;
             inode = inode_table[ind];
         }
+
         /**
          * @brief Write the inode object to the disk.
          * ! Caution: Not modify the inode bitmap
@@ -218,7 +221,7 @@ namespace Ext2m
             size_t group_index = inode_num / inodes_per_group;
             size_t ind = inode_num % inodes_per_group;
             assert(group_index < full_group_count);
-            auto inode_table_block_ind = get_group_inode_table_index(group_index);
+            auto inode_table_block_ind = get_inode_table_index(group_index);
             _disk.read_block(inode_table_block_ind, _buf);
             auto *inode_table = (ext2_inode *)_buf;
             inode_table[ind] = inode;
@@ -231,9 +234,9 @@ namespace Ext2m
          * @param group_index
          * @return BitMap
          */
-        BitMap get_group_block_bitmap(size_t group_index)
+        BitMap get_block_bitmap(size_t group_index)
         {
-            _disk.read_block(get_group_block_bitmap_index(group_index), _buf);
+            _disk.read_block(get_block_bitmap_index(group_index), _buf);
             return BitMap(_buf, blocks_per_group);
         }
         /**
@@ -242,9 +245,9 @@ namespace Ext2m
          * @param group_index
          * @return BitMap
          */
-        BitMap get_group_inode_bitmap(size_t group_index)
+        BitMap get_inode_bitmap(size_t group_index)
         {
-            _disk.read_block(get_group_inode_bitmap_index(group_index), _buf);
+            _disk.read_block(get_inode_bitmap_index(group_index), _buf);
             return BitMap(_buf, inodes_per_group);
         }
         /**
@@ -253,14 +256,14 @@ namespace Ext2m
          * @param group_index
          * @param bitmap
          */
-        void write_group_block_bitmap(size_t group_index, const BitMap &bitmap)
+        void write_block_bitmap(size_t group_index, const BitMap &bitmap)
         {
             auto tmp = bitmap.data();
             const void *buf = tmp.first;
             unsigned size = tmp.second;
             memset(_buf, 0, BLOCK_SIZE);
             memcpy(_buf, buf, size);
-            _disk.write_block(get_group_block_bitmap_index(group_index), _buf);
+            _disk.write_block(get_block_bitmap_index(group_index), _buf);
         }
         /**
          * @brief Write the block-group's {inode bitmap} object to the disk.
@@ -268,14 +271,14 @@ namespace Ext2m
          * @param group_index
          * @param bitmap
          */
-        void write_group_inode_bitmap(size_t group_index, const BitMap &bitmap)
+        void write_inode_bitmap(size_t group_index, const BitMap &bitmap)
         {
             auto tmp = bitmap.data();
             const void *buf = tmp.first;
             unsigned size = tmp.second;
             memset(_buf, 0, BLOCK_SIZE);
             memcpy(_buf, buf, size);
-            _disk.write_block(get_group_inode_bitmap_index(group_index), _buf);
+            _disk.write_block(get_inode_bitmap_index(group_index), _buf);
         }
         /**
          * @brief read nessary information from the super block.
@@ -307,14 +310,14 @@ namespace Ext2m
          * @param count
          * @return std::vector<size_t> , if failed , return empty vector.
          */
-        std::vector<size_t> find_free_block_indexes(size_t group_id, size_t count)
+        std::vector<uint32_t> ballocs(size_t group_id, size_t count)
         {
             // For simplicity, just find any free block in any group
-            std::vector<size_t> ret;
+            std::vector<uint32_t> ret;
             for (size_t i = group_id; (i + 1) % full_group_count != group_id; i = (i + 1) % full_group_count)
             {
                 size_t group_ind = get_group_index(i);
-                auto &&bitmap = get_group_block_bitmap(i);
+                auto &&bitmap = get_block_bitmap(i);
                 bool _bitmap_changed = false;
                 size_t start = 0;
                 while (start != -1)
@@ -328,16 +331,17 @@ namespace Ext2m
                         count--;
                         if (count == 0)
                         {
-                            write_group_block_bitmap(i, bitmap);
+                            write_block_bitmap(i, bitmap);
                             return ret;
                         }
                     }
                 }
                 if (_bitmap_changed)
                 {
-                    write_group_block_bitmap(i, bitmap);
+                    write_block_bitmap(i, bitmap);
                 }
             }
+            assert(0);
             return {};
         }
 
@@ -346,13 +350,13 @@ namespace Ext2m
          *
          * @return inode num , if failed , return 0.
          */
-        size_t find_free_inode_num()
+        size_t ialloc()
         {
             for (size_t i = 0; i < full_group_count; i++)
             {
                 // inode num starts from 1
                 size_t start_inode_n = i * inodes_per_group + 1;
-                auto &&bitmap = get_group_inode_bitmap(i);
+                auto &&bitmap = get_inode_bitmap(i);
                 size_t start = 0;
                 while (start != -1)
                 {
@@ -365,15 +369,357 @@ namespace Ext2m
                             continue;
                         }
                         bitmap.set(start);
-                        write_group_inode_bitmap(i, bitmap);
+                        write_inode_bitmap(i, bitmap);
                         return start + start_inode_n;
                     }
                 }
             }
             return 0;
         }
+        // /*
 
-    public:
+        /**
+         * @brief Get the inode all blocks indexes into a vector.
+         *
+         * @param _block_ind
+         * @param level
+         * @param arr
+         * @return true for continue traverse, false  for reach the end
+         */
+        bool __get_inode_all_blocks__(uint32_t _block_ind, int level, std::vector<uint32_t> &arr)
+        {
+            assert(level < 4 and level >= 0);
+            if (_block_ind == EXT2M_I_BLOCK_END)
+                return false;
+            if (level == 0) // direct access block
+            {
+                arr.push_back(_block_ind);
+                return true;
+            }
+            else // the all indirect block
+            {
+                std::unique_ptr<uint8_t[]> mbuf(new uint8_t[BLOCK_SIZE]);
+                _disk.read_block(_block_ind, mbuf.get());
+                uint8_t *_start = mbuf.get();
+                uint8_t *_end = _start + BLOCK_SIZE;
+                bool flag = true;
+                while (_start != _end)
+                {
+                    __le32 bn = *(__le32 *)_start;
+                    _start += sizeof(__le32);
+                    flag &= __get_inode_all_blocks__(bn, level - 1, arr);
+                    if (not flag)
+                        return false;
+                }
+                return true;
+            }
+        }
+
+        std::vector<uint32_t> get_inode_all_blocks(size_t inode_num)
+        {
+            ext2_inode inode;
+            get_inode(inode_num, inode);
+            bool flag = true;
+            std::vector<uint32_t> indexs;
+            for (int i = 0; i < EXT2_N_BLOCKS; i++)
+            {
+                auto &&n = inode.i_block[i];
+                if (i < EXT2_DIRECT_BLOCKS) // direct access block
+                {
+                    flag &= __get_inode_all_blocks__(n, 0, indexs);
+                }
+                else if (i == EXT2_INDIRECT_BLOCK) // the first indirect block
+                {
+                    flag &= __get_inode_all_blocks__(n, 1, indexs);
+                }
+                else if (i == EXT2_DOUBLY_INDIRECT_BLOCK) // the second indirect block
+                {
+                    flag &= __get_inode_all_blocks__(n, 2, indexs);
+                }
+                else if (i == EXT2_TRIPLY_INDIRECT_BLOCK) // the third indirect block
+                {
+                    flag &= __get_inode_all_blocks__(n, 3, indexs);
+                }
+                else
+                {
+                    assert(0);
+                }
+                if (not flag)
+                    break;
+            }
+            return indexs;
+        }
+
+        ssize_t __add_block_to_inode__(uint32_t _block_ind, int level, uint32_t group_index)
+        {
+            switch (level)
+            {
+            case 1:
+            {
+                _disk.read_block(_block_ind, _buf);
+                uint32_t *_start = (uint32_t *)_buf;
+                uint32_t *_end = _start + BLOCK_SIZE / sizeof(uint32_t);
+                while (_start != _end)
+                {
+                    if (*_start == EXT2M_I_BLOCK_END)
+                    {
+                        auto n = ballocs(group_index, 1).front();
+                        *_start = n;
+                        _disk.write_block(_block_ind, _buf);
+                        return n;
+                    }
+                    _start++;
+                }
+                return -1;
+                break;
+            }
+            case 2:
+            {
+                std::unique_ptr<uint8_t[]> mbuf(new uint8_t[BLOCK_SIZE]);
+                _disk.read_block(_block_ind, mbuf.get());
+                uint32_t *_start = (uint32_t *)mbuf.get();
+                uint32_t *_end = _start + BLOCK_SIZE / sizeof(uint32_t);
+                while (_start != _end)
+                {
+                    if (*_start == EXT2M_I_BLOCK_END)
+                    {
+                        auto n = ballocs(group_index, 1).front();
+                        *_start = n;
+                        _disk.write_block(_block_ind, mbuf.get());
+                        memset(_buf, 0, BLOCK_SIZE);
+                        _disk.write_block(n, _buf);
+                        auto ret = __add_block_to_inode__(n, level - 1, group_index);
+                        return ret;
+                    }
+                    _start++;
+                }
+                return -1;
+                break;
+            }
+            case 3:
+            {
+                std::unique_ptr<uint8_t[]> mbuf(new uint8_t[BLOCK_SIZE]);
+                _disk.read_block(_block_ind, mbuf.get());
+                uint32_t *_start = (uint32_t *)mbuf.get();
+                uint32_t *_end = _start + BLOCK_SIZE / sizeof(uint32_t);
+                while (_start != _end)
+                {
+                    if (*_start == EXT2M_I_BLOCK_END)
+                    {
+                        auto n = ballocs(group_index, 1).front();
+                        *_start = n;
+                        _disk.write_block(_block_ind, mbuf.get());
+                        memset(_buf, 0, BLOCK_SIZE);
+                        _disk.write_block(n, _buf);
+                        auto ret = __add_block_to_inode__(n, level - 1, group_index);
+                        return ret;
+                    }
+                    _start++;
+                }
+                return -1;
+                break;
+            }
+            default:
+                assert(0);
+                break;
+            }
+        }
+
+        uint32_t add_block_to_inode(size_t inode_num)
+        {
+            size_t group_index = inode_num / inodes_per_group;
+
+            ext2_inode inode;
+            get_inode(inode_num, inode);
+
+            // direct access
+            for (int i = 0; i < EXT2_DIRECT_BLOCKS; i++)
+            {
+                auto nb = inode.i_block[i];
+                if (nb == EXT2M_I_BLOCK_END)
+                {
+                    auto pos = ballocs(group_index, 1).front();
+                    inode.i_block[i] = pos;
+                    write_inode(inode_num, inode);
+                    return pos;
+                }
+            }
+
+            // first indirect access
+            if (inode.i_block[EXT2_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
+            {
+                auto pos = ballocs(group_index, 1).front();
+                inode.i_block[EXT2_INDIRECT_BLOCK] = pos;
+                write_inode(inode_num, inode);
+
+                memset(_buf, 0, BLOCK_SIZE);
+                _disk.write_block(pos, _buf);
+            }
+            ssize_t ret = __add_block_to_inode__(inode.i_block[EXT2_INDIRECT_BLOCK], 1, group_index);
+            if (ret != -1)
+                return ret;
+
+            // second indirect access
+            if (inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
+            {
+                auto pos = ballocs(group_index, 1).front();
+                inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK] = pos;
+                write_inode(inode_num, inode);
+                memset(_buf, 0, BLOCK_SIZE);
+                _disk.write_block(pos, _buf);
+            }
+            ret = __add_block_to_inode__(inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK], 2, group_index);
+            if (ret != -1)
+                return ret;
+
+            // third indirect access
+            if (inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
+            {
+                auto pos = ballocs(group_index, 1).front();
+                inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK] = pos;
+                write_inode(inode_num, inode);
+                memset(_buf, 0, BLOCK_SIZE);
+                _disk.write_block(pos, _buf);
+            }
+            ret = __add_block_to_inode__(inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK], 3, group_index);
+            return ret;
+        }
+
+        struct entry
+        {
+            __le32 inode; /* Inode number */
+            __u8 file_type;
+            std::string name;
+        };
+        struct entry_block
+        {
+        private:
+            uint8_t *_now, *_end, *_block;
+
+        public:
+            entry_block() = delete;
+            entry_block(uint8_t *block) : _block(block), _now(block), _end(block + BLOCK_SIZE) {}
+            bool next_entry(entry &e)
+            {
+                if (_now == _end)
+                    return false;
+                ext2_dir_entry_2 *ent = (ext2_dir_entry_2 *)_now;
+                e.inode = ent->inode;
+                e.file_type = ent->file_type;
+                e.name = std::string((char *)ent->name, ent->name_len);
+                _now += ent->rec_len;
+                return true;
+            }
+            bool add_entry(const entry &e)
+            {
+                size_t e_size = roundup(e.name.size() + 1 + sizeof(ext2_dir_entry_2), 4);
+                uint8_t *_now = _block;
+                uint8_t *_end = _block + BLOCK_SIZE;
+                while (_now != _end)
+                {
+                    ext2_dir_entry_2 *ent = (ext2_dir_entry_2 *)_now;
+                    size_t ent_size = roundup(ent->name_len + 1 + sizeof(ext2_dir_entry_2), 4);
+                    assert(ent->rec_len >= ent_size);
+                    size_t remain_size = ent->rec_len - ent_size;
+                    if (remain_size >= e_size)
+                    {
+                        ent->rec_len = ent_size;
+                        ext2_dir_entry_2 *tar = (ext2_dir_entry_2 *)(_now + ent_size);
+                        tar->inode = e.inode;
+                        tar->file_type = e.file_type;
+                        tar->name_len = e.name.size();
+                        strcpy((char *)tar->name, e.name.c_str());
+                        tar->rec_len = remain_size - e_size;
+                        return true;
+                    }
+                    _now += ent->rec_len;
+                }
+                return false;
+            }
+        };
+        std::vector<entry> get_inode_all_entry(uint32_t inode_num)
+        {
+            std::vector<entry> ret;
+            auto all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                _disk.read_block(i, _buf);
+                entry_block eb(_buf);
+                entry e;
+                while (eb.next_entry(e))
+                {
+                    if (ret.size() > 2 and (e.name == "." or e.name == ".."))
+                        continue;
+                    ret.push_back(e);
+                }
+            }
+            return ret;
+        }
+
+        uint32_t get_father_inode_num(uint32_t inode_num)
+        {
+            ext2_inode inode;
+            get_inode(inode_num, inode);
+            auto n = inode.i_block[0];
+            assert(n != 0);
+            _disk.read_block(n, _buf);
+            entry_block eb(_buf);
+            entry e;
+            while (eb.next_entry(e))
+            {
+                if (e.name == "..")
+                    return e.inode;
+            }
+            assert(0);
+        }
+
+        void add_entry_to_indoe(uint32_t inode_num, const entry &ent)
+        {
+            assert(ent.name.size() <= EXT2_NAME_LEN);
+            auto all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                _disk.read_block(i, _buf);
+                entry_block eb(_buf);
+                if (eb.add_entry(ent))
+                {
+                    _disk.write_block(i, _buf);
+                    return;
+                }
+            }
+            auto n = add_block_to_inode(inode_num);
+            memset(_buf, 0, BLOCK_SIZE);
+            init_entry_block(_buf, inode_num, get_father_inode_num(inode_num));
+            entry_block eb(_buf);
+            bool flag = eb.add_entry(ent);
+            assert(flag);
+            _disk.write_block(n, _buf);
+        }
+
+        // */
+
+        void
+        init_entry_block(void *_block, uint32_t inode_num, uint32_t father_inode_num)
+        {
+            memset(_block, 0, BLOCK_SIZE);
+            ext2_dir_entry_2 *_start = (ext2_dir_entry_2 *)_block;
+            _start->inode = inode_num;
+            _start->name_len = 1;
+            _start->file_type = EXT2_FT_DIR;
+            _start->name[0] = '.';
+            _start->name[1] = '\0';
+            _start->rec_len = 12;
+
+            _start = (ext2_dir_entry_2 *)((uint8_t *)_start + 12);
+            _start->inode = father_inode_num;
+            _start->name_len = 2;
+            _start->file_type = EXT2_FT_DIR;
+            _start->name[0] = '.';
+            _start->name[1] = '.';
+            _start->name[2] = '\0';
+            _start->rec_len = BLOCK_SIZE - 12;
+        }
+
         Ext2m(Cache &cache) : _disk(cache)
         {
             if (not check_is_ext2_format())
@@ -500,9 +846,9 @@ namespace Ext2m
                 for (size_t i = 0; i < full_group_count; i++)
                 {
                     auto &&desc = group_desc[i];
-                    desc.bg_block_bitmap = get_group_block_bitmap_index(i);
-                    desc.bg_inode_bitmap = get_group_inode_bitmap_index(i);
-                    desc.bg_inode_table = get_group_inode_table_index(i);
+                    desc.bg_block_bitmap = get_block_bitmap_index(i);
+                    desc.bg_inode_bitmap = get_inode_bitmap_index(i);
+                    desc.bg_inode_table = get_inode_table_index(i);
                     desc.bg_free_blocks_count = blocks_per_group - 3 - group_desc_block_count - inodes_table_block_count;
                     desc.bg_free_inodes_count = inodes_per_group;
                     desc.bg_used_dirs_count = 0;
@@ -517,7 +863,7 @@ namespace Ext2m
             memcpy(_buf, &super_block, sizeof(super_block));
             for (size_t i = 0; i < full_group_count; i++)
             {
-                write_super_block_to_group(i, _buf);
+                write_super_block(i, _buf);
             }
 
             // Write the group descriptor table to the disk
@@ -527,7 +873,7 @@ namespace Ext2m
                 memcpy(ptr, group_desc, sizeof(group_desc));
                 for (size_t i = 0; i < full_group_count; i++)
                 {
-                    write_group_desc_table_to_group(i, ptr);
+                    write_group_desc_table(i, ptr);
                 }
                 delete[] ptr;
             }
@@ -536,20 +882,20 @@ namespace Ext2m
             for (size_t i = 0; i < full_group_count; i++)
             {
                 memset(_buf, 0, BLOCK_SIZE);
-                size_t start_ind = get_group_inode_bitmap_index(i);
+                size_t start_ind = get_inode_bitmap_index(i);
                 size_t end_ind = get_group_index(i) + blocks_per_group;
                 while (start_ind < end_ind)
                 {
                     _disk.write_block(start_ind, _buf);
                     start_ind++;
                 }
-                auto &&bm = get_group_block_bitmap(i);
+                auto &&bm = get_block_bitmap(i);
                 size_t _end = 3 + group_desc_block_count + inodes_table_block_count;
                 for (size_t _j = 0; _j < _end; _j++)
                 {
                     bm.set(_j);
                 }
-                write_group_block_bitmap(i, bm);
+                write_block_bitmap(i, bm);
             }
 
             sync();
@@ -557,7 +903,7 @@ namespace Ext2m
             // // super_block.s_first_ino == 11
 
             // Add root directory
-            auto &&bm = get_group_inode_bitmap(0);
+            auto &&bm = get_inode_bitmap(0);
             // The root directory is Inode 2
             bm.set(2);
 
@@ -592,9 +938,11 @@ namespace Ext2m
                 with the value 0 being used to indicate which blocks are not yet allocated for this file.
                 */
                 memset(root_ino.i_block, 0, sizeof(root_ino.i_block));
-                auto &&tmp = find_free_block_indexes(0, 1);
+                auto &&tmp = ballocs(0, 1);
                 root_ino.i_block[0] = tmp.front();
-                memset(_buf, 0, BLOCK_SIZE);
+
+                init_entry_block(_buf, 2, 2);
+                /*
                 ext2_dir_entry_2 *dir_entry = (ext2_dir_entry_2 *)_buf;
                 size_t _offset = 0;
                 {
@@ -617,7 +965,7 @@ namespace Ext2m
                     dir_entry->name[1] = '.';
                     dir_entry->name[2] = 0;
                     dir_entry->rec_len = BLOCK_SIZE - _offset;
-                }
+                }*/
                 _disk.write_block(root_ino.i_block[0], _buf);
             }
             sync();

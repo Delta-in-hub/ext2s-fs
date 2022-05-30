@@ -4,12 +4,16 @@
 
 #include <stdint.h>
 
+#define ROOT_INODE 2
+
 // little endian is default for intel x86
 using __le32 = uint32_t;
 using __le16 = uint16_t;
 using __u8 = uint8_t;
 using __u16 = uint16_t;
 using __u32 = uint32_t;
+
+#define EXT2_NAME_LEN 255
 
 // 15 block  numbers  pointing  to  the  blocks  ontaining  the  data  for  this  inode.
 #define EXT2_N_BLOCKS 15
