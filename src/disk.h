@@ -6,35 +6,43 @@
 #include <unistd.h>
 #include "ext2_spec.h"
 #include "config.h"
+#include <cstdlib>
+#include <cstdio>
 
 class Disk
 {
 private:
-    int _fd;
+    FILE *_fp;
 
 public:
     Disk(const char *_path)
     {
         // if file exists, open it, otherwise create it
-        _fd = open(_path, O_RDWR);
-        if (_fd == -1)
+        _fp = fopen(_path, "r");
+        if (_fp == nullptr)
         {
-            _fd = open(_path, O_RDWR | O_CREAT, 0666);
-            assert(_fd != -1);
-            auto s = ftruncate(_fd, DISK_SIZE);
-            assert(s == 0);
+            _fp = fopen(_path, "w+b");
+            assert(_fp != nullptr);
+            fseek(_fp, DISK_SIZE, SEEK_END);
+            fwrite("\0", 1, 1, _fp);
         }
+        else
+        {
+            fclose(_fp);
+            _fp = fopen(_path, "r+b");
+        }
+        assert(_fp);
     }
     ~Disk()
     {
-        close(_fd);
+        fclose(_fp);
     }
     void read_block(unsigned block_num, void *buf)
     {
         assert(block_num < DISK_SIZE / BLOCK_SIZE);
         assert(buf != nullptr);
-        lseek(_fd, block_num * BLOCK_SIZE, SEEK_SET);
-        auto s = read(_fd, buf, BLOCK_SIZE);
+        fseek(_fp, block_num * BLOCK_SIZE, SEEK_SET);
+        auto s = fread(buf, 1, BLOCK_SIZE, _fp);
         assert(s == BLOCK_SIZE);
     }
     void write_block(unsigned block_num, const void *buf)
@@ -42,19 +50,21 @@ public:
         static size_t cnt = 0;
         assert(block_num < DISK_SIZE / BLOCK_SIZE);
         assert(buf != nullptr);
-        lseek(_fd, block_num * BLOCK_SIZE, SEEK_SET);
-        auto s = write(_fd, buf, BLOCK_SIZE);
+        fseek(_fp, block_num * BLOCK_SIZE, SEEK_SET);
+        auto s = fwrite(buf, 1, BLOCK_SIZE, _fp);
         assert(s == BLOCK_SIZE);
         if (cnt++ > 4096)
         {
             cnt = 0;
-            s = fsync(_fd); // ! HUGE DAMAGE TO PERFORMANCE !
+            // s = fsync(_fd); // ! HUGE DAMAGE TO PERFORMANCE !
+            s = fflush(_fp);
             assert(s == 0);
         }
     }
     void sync()
     {
-        auto s = fsync(_fd);
+        // auto s = fsync(_fd);
+        auto s = fflush(_fp);
         assert(s == 0);
     }
 };
