@@ -7,6 +7,7 @@
 #include "bitmap.h"
 #include <memory>
 #include <functional>
+#include <string>
 
 /*
  * TODOLISTS:
@@ -203,9 +204,14 @@ namespace Ext2m
             size_t ind = inode_num % inodes_per_group;
             assert(group_index < full_group_count);
             auto inode_table_block_ind = get_inode_table_index(group_index);
-            _disk.read_block(inode_table_block_ind, _buf);
+
+            //     BLOCK_SIZE / INODE_SIZE; // 8 inodes per block
+            size_t block_index = ind / 8;
+            size_t offset = ind % 8;
+
+            _disk.read_block(inode_table_block_ind + block_index, _buf);
             auto *inode_table = (ext2_inode *)_buf;
-            inode = inode_table[ind];
+            inode = inode_table[offset];
         }
 
         /**
@@ -222,10 +228,16 @@ namespace Ext2m
             size_t ind = inode_num % inodes_per_group;
             assert(group_index < full_group_count);
             auto inode_table_block_ind = get_inode_table_index(group_index);
-            _disk.read_block(inode_table_block_ind, _buf);
+
+            //  BLOCK_SIZE / INODE_SIZE; // 8 inodes per block
+            size_t block_index = ind / 8;
+            size_t offset = ind % 8;
+
+            _disk.read_block(inode_table_block_ind + block_index, _buf);
             auto *inode_table = (ext2_inode *)_buf;
-            inode_table[ind] = inode;
-            _disk.write_block(inode_table_block_ind, _buf);
+            inode_table[offset] = inode;
+
+            _disk.write_block(inode_table_block_ind + block_index, _buf);
         }
 
         /**
@@ -310,7 +322,7 @@ namespace Ext2m
          * @param count
          * @return std::vector<size_t> , if failed , return empty vector.
          */
-        std::vector<uint32_t> ballocs(size_t group_id, size_t count)
+        std::vector<uint32_t> ballocs(size_t group_id, size_t count = 1)
         {
             // For simplicity, just find any free block in any group
             std::vector<uint32_t> ret;
@@ -423,7 +435,7 @@ namespace Ext2m
             std::vector<uint32_t> indexs;
             for (int i = 0; i < EXT2_N_BLOCKS; i++)
             {
-                auto &&n = inode.i_block[i];
+                auto n = inode.i_block[i];
                 if (i < EXT2_DIRECT_BLOCKS) // direct access block
                 {
                     flag &= __get_inode_all_blocks__(n, 0, indexs);
@@ -629,7 +641,7 @@ namespace Ext2m
                         tar->file_type = e.file_type;
                         tar->name_len = e.name.size();
                         strcpy((char *)tar->name, e.name.c_str());
-                        tar->rec_len = remain_size - e_size;
+                        tar->rec_len = remain_size;
                         return true;
                     }
                     _now += ent->rec_len;
@@ -688,7 +700,7 @@ namespace Ext2m
                 }
             }
             auto n = add_block_to_inode(inode_num);
-            memset(_buf, 0, BLOCK_SIZE);
+            assert(n != -1);
             init_entry_block(_buf, inode_num, get_father_inode_num(inode_num));
             entry_block eb(_buf);
             bool flag = eb.add_entry(ent);
@@ -698,8 +710,7 @@ namespace Ext2m
 
         // */
 
-        void
-        init_entry_block(void *_block, uint32_t inode_num, uint32_t father_inode_num)
+        void init_entry_block(void *_block, uint32_t inode_num, uint32_t father_inode_num)
         {
             memset(_block, 0, BLOCK_SIZE);
             ext2_dir_entry_2 *_start = (ext2_dir_entry_2 *)_block;
@@ -720,10 +731,25 @@ namespace Ext2m
             _start->rec_len = BLOCK_SIZE - 12;
         }
 
+        void init_inode(ext2_inode &inode, __le16 mode, __le16 uid, __le16 gid)
+        {
+            memset(&inode, 0, sizeof(ext2_inode));
+            inode.i_mode = mode;
+            inode.i_uid = uid;
+            inode.i_gid = gid;
+            inode.i_links_count = 2;
+            inode.i_blocks = 1;
+            inode.i_dtime = 0;
+            inode.i_ctime = time(NULL);
+            inode.i_mtime = inode.i_ctime;
+            inode.i_atime = inode.i_ctime;
+        }
+
         Ext2m(Cache &cache) : _disk(cache)
         {
+            format();
             if (not check_is_ext2_format())
-                format();
+                ;
             else
                 read_info();
             _disk.read_block(1, _buf);
@@ -906,7 +932,7 @@ namespace Ext2m
             auto &&bm = get_inode_bitmap(0);
             // The root directory is Inode 2
             bm.set(2);
-
+            write_inode_bitmap(0, bm);
             // see ext2.pdf page 18
             ext2_inode root_ino;
             {
@@ -938,36 +964,11 @@ namespace Ext2m
                 with the value 0 being used to indicate which blocks are not yet allocated for this file.
                 */
                 memset(root_ino.i_block, 0, sizeof(root_ino.i_block));
-                auto &&tmp = ballocs(0, 1);
-                root_ino.i_block[0] = tmp.front();
-
+                root_ino.i_block[0] = ballocs(0).front();
                 init_entry_block(_buf, 2, 2);
-                /*
-                ext2_dir_entry_2 *dir_entry = (ext2_dir_entry_2 *)_buf;
-                size_t _offset = 0;
-                {
-                    dir_entry->inode = 2;
-                    dir_entry->name_len = 1;
-                    dir_entry->file_type = EXT2_FT_DIR;
-                    dir_entry->name[0] = '.';
-                    dir_entry->name[1] = 0;
-                    _offset += 8;
-                    _offset += dir_entry->name_len + 1;
-                    _offset = roundup(_offset, 4);
-                    dir_entry->rec_len = _offset;
-                }
-                dir_entry = (ext2_dir_entry_2 *)(_buf + _offset);
-                {
-                    dir_entry->inode = 2;
-                    dir_entry->name_len = 2;
-                    dir_entry->file_type = EXT2_FT_DIR;
-                    dir_entry->name[0] = '.';
-                    dir_entry->name[1] = '.';
-                    dir_entry->name[2] = 0;
-                    dir_entry->rec_len = BLOCK_SIZE - _offset;
-                }*/
                 _disk.write_block(root_ino.i_block[0], _buf);
             }
+            write_inode(2, root_ino);
             sync();
         }
     };

@@ -27,7 +27,7 @@ private:
     };
     void _write_item_back(cache_item &item)
     {
-        if (item.dirty)
+        if (item.dirty and item.block_idx != -1)
         {
             _disk.write_block(item.block_idx, item.data);
             item.dirty = false;
@@ -116,6 +116,9 @@ public:
 
     void read_block(unsigned block_index, void *buf)
     {
+        // _disk.read_block(block_index, buf);
+        // return;
+
         assert(block_index < DISK_SIZE / BLOCK_SIZE);
         assert(buf != nullptr);
         if (_lru_map.count(block_index) == 0)
@@ -128,6 +131,9 @@ public:
     }
     void write_block(unsigned block_index, const void *buf)
     {
+        // _disk.write_block(block_index, buf);
+        // return;
+
         assert(block_index < DISK_SIZE / BLOCK_SIZE);
         assert(buf != nullptr);
         if (_lru_map.count(block_index) == 0)
