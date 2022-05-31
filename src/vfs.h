@@ -187,6 +187,30 @@ class VFS
         return 0;
     }
 
+    int unlink_from_root(const char *absolute_path)
+    {
+        assert(absolute_path[0] == '/');
+        auto &&paths = split(absolute_path, "/");
+        uint32_t father_idx = 0;
+        uint32_t inode_idx = ROOT_INODE;
+        for (auto &&i : paths)
+        {
+            auto idx = find_dir_from_inode(inode_idx, i);
+            if (idx == -1)
+                return -1;
+            father_idx = inode_idx;
+            inode_idx = idx;
+        }
+        // TODO :should check link_count == 1
+        ext2_inode inode;
+        _ext2.get_inode(inode_idx, inode);
+        assert(check_regular_file(inode.i_mode));
+
+        _ext2.free_entry_to_inode(father_idx, inode_idx);
+        _ext2.ifree(inode_idx);
+        return 0;
+    }
+
     struct file_description
     {
         uint32_t inode_idx;
@@ -237,6 +261,21 @@ class VFS
             return false;
     }
 
+    bool check_regular_file(__le16 mode)
+    {
+        if ((mode & EXT2_S_IFMT) != EXT2_S_IFREG)
+            return false;
+        return true;
+    }
+
+    bool check_dir(__le16 mode)
+    {
+        // EXT2_S_IFDIR
+        if ((mode & EXT2_S_IFMT) != EXT2_S_IFDIR)
+            return false;
+        return true;
+    }
+
     int open_file_from_root(const char *absolute_path, int flag)
     {
         // flag : O_RDONLY, O_WRONLY, O_RDWR
@@ -257,12 +296,69 @@ class VFS
         _fdd.inode_idx = inode_idx;
         ext2_inode inode;
         _ext2.get_inode(inode_idx, inode);
-        if ((inode.i_mode & EXT2_S_IFMT) != EXT2_S_IFREG)
+        if (not check_regular_file(inode.i_mode))
             return -1;
         _fdd.offset = 0;
         auto fd = get_avaiable_fd();
         _files[fd] = _fdd;
         return fd;
+    }
+
+    int mv_from_root(const char *old_path, const char *new_path)
+    {
+        auto &&paths = split(old_path, "/");
+        uint32_t father_idx = 0;
+        uint32_t inode_idx = ROOT_INODE;
+        for (auto &&i : paths)
+        {
+            auto idx = find_dir_from_inode(inode_idx, i);
+            if (idx == -1)
+                return -1;
+            father_idx = inode_idx;
+            inode_idx = idx;
+        }
+
+        auto &&npath = split(new_path, "/");
+        if (npath.empty())
+            return -1;
+        auto rname = npath.back();
+        npath.pop_back();
+
+        uint32_t target_inode_idx = ROOT_INODE;
+        for (auto &&i : npath)
+        {
+            auto idx = find_dir_from_inode(target_inode_idx, i);
+            if (idx == -1)
+                return -1;
+            target_inode_idx = idx;
+        }
+
+        ext2_inode inode;
+        _ext2.get_inode(inode_idx, inode);
+
+        _ext2.free_entry_to_inode(inode_idx, father_idx);
+
+        Ext2m::Ext2m::entry e;
+        if (check_regular_file(inode.i_mode))
+            e.file_type = EXT2_FT_REG_FILE;
+        else if (check_dir(inode.i_mode))
+            e.file_type = EXT2_FT_DIR;
+        else
+            assert(0);
+        e.inode = inode_idx;
+        e.name = rname;
+
+        _ext2.add_entry_to_inode(target_inode_idx, e);
+        return 0;
+    }
+
+    std::string to_absolute_path(const char *_path)
+    {
+        if (_path[0] == '/')
+            return _path;
+        auto s = pwd();
+        s += _path;
+        return s;
     }
 
 public:
@@ -277,8 +373,7 @@ public:
     }
     int open(const char *path, int flags)
     {
-        auto str = pwd();
-        str += path;
+        auto str = to_absolute_path(path);
         if ((flags & ~O_ACCMODE) == O_CREAT)
         {
             create(path);
@@ -466,54 +561,49 @@ public:
     }
     int stat(const char *path, struct stat *buf)
     {
-        auto dir = pwd();
-        dir += path;
+        auto dir = to_absolute_path(path);
         return stat_from_root(dir.c_str(), buf);
     }
     int mkdir(const char *path)
     {
-        auto dir = pwd();
-        dir += path;
+        auto dir = to_absolute_path(path);
         return mkdir_from_root(dir.c_str());
     }
 
     int ls(const char *path)
     {
-        auto dir = pwd();
-        dir += path;
+        auto dir = to_absolute_path(path);
         return ls_from_root(dir.c_str());
     }
 
     int rmdir(const char *path)
     {
-        auto dir = pwd();
-        dir += path;
+        auto dir = to_absolute_path(path);
         return rmdir_from_root(dir.c_str());
-        return -1;
     }
     int unlink(const char *path)
     {
-        return -1;
+        auto dir = to_absolute_path(path);
+        return unlink_from_root(dir.c_str());
     }
     int delet(const char *path)
     {
-        unlink(path);
-        return -1;
+        return unlink(path);
     }
     int create(const char *path)
     {
-        auto dir = pwd();
-        dir += path;
+        auto dir = to_absolute_path(path);
         return create_file_from_root(dir.c_str());
     }
     int touch(const char *path)
     {
         return create(path);
     }
-    // TODO
-    int rename(const char *oldpath, const char *newpath)
+    int mv(const char *oldpath, const char *newpath)
     {
-        return -1;
+        auto old = to_absolute_path(oldpath);
+        auto newp = to_absolute_path(newpath);
+        return mv_from_root(old.c_str(), newp.c_str());
     }
 };
 
