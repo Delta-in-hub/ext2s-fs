@@ -1,6 +1,6 @@
 #ifndef __CACHE_H__
 #define __CACHE_H__
-#include "disk.h"
+#include "disk.hpp"
 #include <unordered_map>
 #include <list>
 #include <string.h>

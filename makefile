@@ -1,10 +1,11 @@
 net_source = src/extern/*.cpp src/extern/*.h
 
-ext2_source = src/*.h
+ext2_source = src/*.hpp
 CCFLAGS = -Ofast -std=c++14
-
+TARGET = bin/server bin/client
 ifeq ($(OS),Windows_NT)
 	CCFLAGS += -D WINDOWS -lWs2_32
+	TARGET = bin/server.exe bin/client.exe
 endif
 
 mkdir:
@@ -17,7 +18,7 @@ client: mkdir
 	g++ ${net_source} src/client.cpp -o bin/client ${CCFLAGS}
 
 clean:
-	rm -f bin/server bin/client
+	rm -f ${TARGET}
 
 all: clean server client
 

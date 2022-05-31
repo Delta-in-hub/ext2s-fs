@@ -4,10 +4,10 @@
 #include <string>
 #include <thread>
 #include <memory>
-#include "vfs.h"
-#include "util.h"
-#include "user.h"
-#include "shell.h"
+#include "vfs.hpp"
+#include "util.hpp"
+#include "user.hpp"
+#include "shell.hpp"
 
 using namespace std;
 

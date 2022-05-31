@@ -1,9 +1,9 @@
-#include "ext2m.h"
+#include "ext2m.hpp"
 #include <bits/stdc++.h>
 #include "signal.h"
-#include "util.h"
-#include "vfs.h"
-#include "shell.h"
+#include "util.hpp"
+#include "vfs.hpp"
+#include "shell.hpp"
 
 using namespace std;
 

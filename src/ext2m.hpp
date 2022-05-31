@@ -1,10 +1,10 @@
 #ifndef __EXT2M_H__
 #define __EXT2M_H__
 #include <tuple>
-#include "cache.h"
-#include "config.h"
+#include "cache.hpp"
+#include "config.hpp"
 #include <time.h>
-#include "bitmap.h"
+#include "bitmap.hpp"
 #include <memory>
 #include <functional>
 #include <string>
@@ -20,9 +20,9 @@
 namespace Ext2m
 {
 
-    constexpr auto ceil(uint64_t x, uint64_t y) { return (x + y - 1) / y; }
-    constexpr auto roundup(uint64_t x, uint64_t y) { return ((x + y - 1) / y) * y; }
-    constexpr auto log2(uint64_t x) { return __builtin_ctzll(x); }
+    constexpr auto ceil(uint64_t x, uint64_t y) -> uint64_t { return (x + y - 1) / y; }
+    constexpr auto roundup(uint64_t x, uint64_t y) -> uint64_t { return ((x + y - 1) / y) * y; }
+    constexpr auto log2(uint64_t x) -> uint64_t { return __builtin_ctzll(x); }
 
     // https://docs.oracle.com/cd/E19504-01/802-5750/fsfilesysappx-14/index.html
     // The default number of bytes per inode is 2048 bytes (2 Kbytes), which assumes the average size of each file is 2 Kbytes or greater.

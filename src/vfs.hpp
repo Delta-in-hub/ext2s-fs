@@ -1,7 +1,7 @@
 #ifndef __VFS_H__
 #define __VFS_H__
-#include "ext2m.h"
-#include "util.h"
+#include "ext2m.hpp"
+#include "util.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <iostream>

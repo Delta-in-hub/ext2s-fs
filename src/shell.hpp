@@ -1,7 +1,7 @@
 #ifndef __SHELL_H__
 #define __SHELL_H__
 
-#include "vfs.h"
+#include "vfs.hpp"
 #include <mutex>
 
 class Shell

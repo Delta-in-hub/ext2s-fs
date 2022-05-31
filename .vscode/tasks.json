@@ -8,6 +8,7 @@
                 "-fdiagnostics-color=always",
                 "-Wall",
                 "-g",
+                "-std=c++14",
                 // "${file}",
                 "${fileDirname}/main.cpp",
                 "-o",

@@ -1,10 +1,23 @@
 # File System
 
 - [File System](#file-system)
+  - [Complie](#complie)
   - [Intro](#intro)
     - [FAT : File Allocation Table](#fat--file-allocation-table)
   - [Command](#command)
   - [EXT2](#ext2)
+
+## Complie
+
+Windows 
+```bash
+> mingw32-make.exe all
+```
+
+Linux 
+```bash
+> make all
+```
 
 ## Intro
 

@@ -5,7 +5,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include "ext2_spec.h"
-#include "config.h"
+#include "config.hpp"
 #include <cstdlib>
 #include <cstdio>
 
