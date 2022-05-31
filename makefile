@@ -1,7 +1,7 @@
 net_source = src/extern/*.cpp src/extern/*.h
 
 ext2_source = src/*.hpp
-CCFLAGS = -Ofast -std=c++14
+CCFLAGS = -Ofast -std=c++14 -lpthread
 TARGET = bin/server bin/client
 ifeq ($(OS),Windows_NT)
 	CCFLAGS += -D WINDOWS -lWs2_32
