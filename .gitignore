@@ -578,4 +578,5 @@ fabric.properties
 
 *.img
 
-bin/*
+bin/
+~bin/userlist.txt
