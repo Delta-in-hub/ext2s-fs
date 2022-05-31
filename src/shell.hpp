@@ -166,6 +166,8 @@ public:
     {
         auto abs_src = to_abs(src);
         auto abs_dst = to_abs(dst);
+        std::cout << abs_src << std::endl;
+        std::cout << abs_dst << std::endl;
         _mtx.lock();
         int ret = _vfs.mv(abs_src.c_str(), abs_dst.c_str());
         _mtx.unlock();

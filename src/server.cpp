@@ -182,7 +182,7 @@ void handler(CTCPServer &server, ASocket::Socket socket)
             auto ret = sh.rmdir(comarr[1]);
             send_msg(ret);
         }
-        else if (com == "mv" or com == "rename") // ! bug here
+        else if (com == "mv" or com == "rename")
         {
             if (comarr.size() < 3)
             {

@@ -362,7 +362,7 @@ class VFS
         ext2_inode inode;
         _ext2.get_inode(inode_idx, inode);
 
-        _ext2.free_entry_to_inode(inode_idx, father_idx);
+        _ext2.free_entry_to_inode(father_idx, inode_idx);
 
         Ext2m::Ext2m::entry e;
         if (check_regular_file(inode.i_mode))
