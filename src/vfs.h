@@ -7,14 +7,15 @@
 #include <iostream>
 #include <fcntl.h>
 
+std::string pwd()
+{
+    return "";
+}
+
 class VFS
 {
     uint8_t _buf[BLOCK_SIZE];
     Ext2m::Ext2m &_ext2;
-    std::string pwd()
-    {
-        return "";
-    }
 
     ssize_t find_dir_from_inode(uint32_t inode_idx, const std::string &name, bool creat = false)
     {
@@ -47,7 +48,7 @@ class VFS
         e.file_type = EXT2_FT_DIR;
         e.inode = newid;
         e.name = name;
-        _ext2.add_entry_to_indoe(inode_idx, e);
+        _ext2.add_entry_to_inode(inode_idx, e);
         return newid;
     }
 
@@ -95,7 +96,7 @@ class VFS
         e.file_type = EXT2_FT_REG_FILE;
         e.inode = nid;
         e.name = file_name;
-        _ext2.add_entry_to_indoe(inode_idx, e);
+        _ext2.add_entry_to_inode(inode_idx, e);
 
         return 0;
     }
@@ -145,6 +146,47 @@ class VFS
         }
         return 0;
     }
+
+    int rmdir_from_root(const char *absolute_path)
+    {
+        assert(absolute_path[0] == '/');
+        auto &&paths = split(absolute_path, "/");
+        uint32_t inode_idx = ROOT_INODE;
+        for (auto &&i : paths)
+        {
+            auto idx = find_dir_from_inode(inode_idx, i);
+            if (idx == -1)
+                return -1;
+            inode_idx = idx;
+        }
+        if (inode_idx == ROOT_INODE)
+            return -1;
+        auto &&entrys = _ext2.get_inode_all_entry(inode_idx);
+        bool delable = true;
+        uint32_t father_inode = 0;
+        for (auto &&i : entrys)
+        {
+            if (i.name == ".")
+            {
+                assert(i.inode == inode_idx);
+            }
+            else if (i.name == "..")
+            {
+                father_inode = i.inode;
+            }
+            else
+            {
+                delable = false;
+                break;
+            }
+        }
+        if (!delable)
+            return -1;
+        _ext2.free_entry_to_inode(father_inode, inode_idx);
+        _ext2.ifree(inode_idx);
+        return 0;
+    }
+
     struct file_description
     {
         uint32_t inode_idx;
@@ -263,6 +305,8 @@ public:
             return -1;
         ext2_inode inode;
         _ext2.get_inode(_fd.inode_idx, inode);
+        inode.i_atime = time(NULL);
+        _ext2.write_inode(_fd.inode_idx, inode);
         if (_fd.offset >= inode.i_size)
             return 0;
         size_t real_read_size = 0;
@@ -320,6 +364,8 @@ public:
         ext2_inode inode;
         _ext2.get_inode(inode_idx, inode);
         inode.i_size = std::max(inode.i_size, offset + count);
+        inode.i_atime = time(NULL);
+        inode.i_mtime = time(NULL);
         _ext2.write_inode(inode_idx, inode);
 
         auto &&all_blocks = _ext2.get_inode_all_blocks(inode_idx);
@@ -440,6 +486,9 @@ public:
 
     int rmdir(const char *path)
     {
+        auto dir = pwd();
+        dir += path;
+        return rmdir_from_root(dir.c_str());
         return -1;
     }
     int unlink(const char *path)

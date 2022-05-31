@@ -357,6 +357,24 @@ namespace Ext2m
             return {};
         }
 
+        uint32_t balloc(size_t group_id)
+        {
+            return ballocs(group_id, 1).at(0);
+        }
+
+        void bfree(uint32_t block_idx)
+        {
+            if (block_idx == 0)
+                return;
+            auto group_idx = (block_idx - 1) / blocks_per_group;
+            auto offset = (block_idx - 1) % blocks_per_group;
+            assert(group_idx < full_group_count);
+            assert(offset >= 3 + group_desc_block_count + inodes_table_block_count);
+            auto &&bitmap = get_block_bitmap(group_idx);
+            bitmap.reset(offset);
+            write_block_bitmap(group_idx, bitmap);
+        }
+
         /**
          * @brief Find an avaialble inode index, and modify the inode bitmap.
          *
@@ -388,6 +406,26 @@ namespace Ext2m
             }
             return 0;
         }
+
+        void ifree(uint32_t inode_num)
+        {
+            if (inode_num < _superb.s_first_ino)
+                return;
+            inode_num--;
+            size_t group_index = inode_num / inodes_per_group;
+            size_t ind = inode_num % inodes_per_group;
+            assert(group_index < full_group_count);
+
+            auto &&all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                bfree(i);
+            }
+            auto &&bm = get_inode_bitmap(group_index);
+            bm.reset(ind);
+            write_inode_bitmap(group_index, bm);
+        }
+
         // /*
 
         /**
@@ -648,6 +686,31 @@ namespace Ext2m
                 }
                 return false;
             }
+            bool free(uint32_t inode_num)
+            {
+                uint8_t *_pre = nullptr;
+                uint8_t *_now = _block;
+                uint8_t *_end = _block + BLOCK_SIZE;
+                while (_now != _end)
+                {
+                    ext2_dir_entry_2 *ent = (ext2_dir_entry_2 *)_now;
+                    if (ent->inode == inode_num)
+                    {
+                        assert(strcmp((char *)ent->name, ".") != 0);
+                        assert(strcmp((char *)ent->name, "..") != 0);
+
+                        ext2_dir_entry_2 *precd = (ext2_dir_entry_2 *)_pre;
+                        precd->rec_len += ent->rec_len;
+
+                        ent->rec_len = 0;
+                        ent->inode = 0;
+                        return true;
+                    }
+                    _pre = _now;
+                    _now += ent->rec_len;
+                }
+                return false;
+            }
         };
         std::vector<entry> get_inode_all_entry(uint32_t inode_num)
         {
@@ -685,10 +748,10 @@ namespace Ext2m
             assert(0);
         }
 
-        void add_entry_to_indoe(uint32_t inode_num, const entry &ent)
+        void add_entry_to_inode(uint32_t inode_num, const entry &ent)
         {
             assert(ent.name.size() <= EXT2_NAME_LEN);
-            auto all_blocks = get_inode_all_blocks(inode_num);
+            auto &&all_blocks = get_inode_all_blocks(inode_num);
             for (auto &&i : all_blocks)
             {
                 _disk.read_block(i, _buf);
@@ -706,6 +769,22 @@ namespace Ext2m
             bool flag = eb.add_entry(ent);
             assert(flag);
             _disk.write_block(n, _buf);
+        }
+
+        void free_entry_to_inode(uint32_t inode_num, uint32_t free_inode)
+        {
+            auto &&all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                _disk.read_block(i, _buf);
+                entry_block eb(_buf);
+                if (eb.free(free_inode))
+                {
+                    _disk.write_block(i, _buf);
+                    return;
+                }
+            }
+            assert(0);
         }
 
         // */

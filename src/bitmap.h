@@ -31,6 +31,15 @@ private:
 
 public:
     BitMap() = delete;
+    BitMap(const BitMap &) = delete;
+    BitMap(BitMap &&bm)
+    {
+        _data = bm._data;
+        _sizeInBytes = bm._sizeInBytes;
+        _sizeInBits = bm._sizeInBits;
+        bm._data = nullptr;
+        bm._sizeInBits = bm._sizeInBytes = 0;
+    }
     /**
      * @brief Construct a new Bit Map object
      *
@@ -45,7 +54,8 @@ public:
     }
     ~BitMap()
     {
-        delete[] _data;
+        if (_data)
+            delete[] _data;
     }
 
     /**
