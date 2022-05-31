@@ -6,14 +6,11 @@
 #include <cstdio>
 #include <iostream>
 #include <fcntl.h>
-
-std::string pwd()
-{
-    return "";
-}
+#include <ctime>
 
 class VFS
 {
+    std::string _cwd;
     uint8_t _buf[BLOCK_SIZE];
     Ext2m::Ext2m &_ext2;
 
@@ -127,8 +124,9 @@ class VFS
         return 0;
     }
 
-    int ls_from_root(const char *absolute_path)
+    std::string ls_from_root(const char *absolute_path)
     {
+        std::cout << absolute_path << std::endl;
         assert(absolute_path[0] == '/');
         auto &&paths = split(absolute_path, "/");
         uint32_t inode_idx = ROOT_INODE;
@@ -136,15 +134,42 @@ class VFS
         {
             auto idx = find_dir_from_inode(inode_idx, i);
             if (idx == -1)
-                return -1;
+                return "";
             inode_idx = idx;
         }
         auto entrys = _ext2.get_inode_all_entry(inode_idx);
+
+        std::string ret;
+        char buf[1024];
+        memset(buf, 0, 1024);
+
+        sprintf(buf, "%s:\n", absolute_path);
+        ret += buf;
+
+        sprintf(buf, "%-10s %-10s %20s %10s %15s\n", "ino", "type", "ctime", "size", "name");
+        ret += buf;
+        sprintf(buf, "------------------------------------------------------------------------\n");
+        ret += buf;
+
         for (auto &&i : entrys)
         {
-            printf("%s\t%d\t%d\n", i.name.c_str(), i.file_type, i.inode);
+            ext2_inode inode;
+            _ext2.get_inode(i.inode, inode);
+            std::string type;
+            if (check_dir(inode.i_mode))
+                type = "dir";
+            else if (check_regular_file(inode.i_mode))
+                type = "file";
+            else
+                type = "unknow";
+            auto t = time_t(inode.i_ctime);
+            char output[64];
+            std::strftime(output, sizeof(output), "%F %T", localtime(&t));
+
+            sprintf(buf, "%-10d %-10s %20s %10d %15s\n", i.inode, type.c_str(), output, inode.i_size, i.name.c_str());
+            ret += buf;
         }
-        return 0;
+        return ret;
     }
 
     int rmdir_from_root(const char *absolute_path)
@@ -204,7 +229,8 @@ class VFS
         // TODO :should check link_count == 1
         ext2_inode inode;
         _ext2.get_inode(inode_idx, inode);
-        assert(check_regular_file(inode.i_mode));
+        if (not check_regular_file(inode.i_mode))
+            return -1;
 
         _ext2.free_entry_to_inode(father_idx, inode_idx);
         _ext2.ifree(inode_idx);
@@ -354,11 +380,7 @@ class VFS
 
     std::string to_absolute_path(const char *_path)
     {
-        if (_path[0] == '/')
-            return _path;
-        auto s = pwd();
-        s += _path;
-        return s;
+        return _path;
     }
 
 public:
@@ -371,6 +393,7 @@ public:
     {
         _ext2.sync();
     }
+
     int open(const char *path, int flags)
     {
         auto str = to_absolute_path(path);
@@ -564,13 +587,37 @@ public:
         auto dir = to_absolute_path(path);
         return stat_from_root(dir.c_str(), buf);
     }
+
+    /**
+     * @brief check the path exists
+     *
+     * @param path
+     * @return -1 if not exists, 0 if is regular file , 1 if is directory
+     */
+    int exists(const char *path)
+    {
+        struct stat st;
+        auto ret = stat(path, &st);
+        if (ret == -1)
+            return -1;
+        if (check_regular_file(st.st_mode))
+        {
+            return 0;
+        }
+        else if (check_dir(st.st_mode))
+        {
+            return 1;
+        }
+        return -1;
+    }
+
     int mkdir(const char *path)
     {
         auto dir = to_absolute_path(path);
         return mkdir_from_root(dir.c_str());
     }
 
-    int ls(const char *path)
+    std::string ls(const char *path)
     {
         auto dir = to_absolute_path(path);
         return ls_from_root(dir.c_str());
@@ -604,6 +651,54 @@ public:
         auto old = to_absolute_path(oldpath);
         auto newp = to_absolute_path(newpath);
         return mv_from_root(old.c_str(), newp.c_str());
+    }
+    void sync()
+    {
+        _ext2.sync();
+    }
+
+    std::string real_path(const std::string &path)
+    {
+        // :  /././././home/../home/delta
+        // : /home/delta
+
+        // /home/delta/../../
+        // home
+        std::cout << path << std::endl;
+
+        auto &&paths = split(path.c_str(), "/");
+        uint32_t inode_idx = ROOT_INODE;
+        std::unordered_map<int, int> fa;
+        fa[ROOT_INODE] = ROOT_INODE;
+        std::vector<std::string> real_paths;
+        for (auto &&i : paths)
+        {
+            auto idx = find_dir_from_inode(inode_idx, i, true);
+            if (idx == -1)
+                return "";
+            if (idx != inode_idx) // not ./
+            {
+                auto pos = fa.find(idx);
+                if (pos == fa.end())
+                {
+                    fa[idx] = inode_idx;
+                    real_paths.push_back(i);
+                }
+                else
+                {
+                    if (real_paths.size() >= 0)
+                        real_paths.pop_back();
+                }
+            }
+
+            inode_idx = idx;
+        }
+        std::string ret("/");
+        for (auto &&i : real_paths)
+        {
+            ret += i + "/";
+        }
+        return ret;
     }
 };
 

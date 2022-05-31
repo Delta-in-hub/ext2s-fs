@@ -1,6 +1,6 @@
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
-
+#include <stdint.h>
 /*
  * Size definitions
  */
@@ -13,7 +13,6 @@
 #define EB (1024 * PB)
 #define ZB (1024 * EB)
 #define YB (1024 * ZB)
-
 
 constexpr auto DISK_SIZE = 64 * MB + 3 * KB;
 constexpr auto BLOCK_SIZE = 1 * KB;

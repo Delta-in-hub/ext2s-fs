@@ -577,3 +577,5 @@ fabric.properties
 
 
 *.img
+
+bin/*

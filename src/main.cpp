@@ -3,6 +3,7 @@
 #include "signal.h"
 #include "util.h"
 #include "vfs.h"
+#include "shell.h"
 
 using namespace std;
 
@@ -13,22 +14,24 @@ int main(void)
     Ext2m::Ext2m ext2fs(cache);
     VFS vfs(ext2fs);
 
-    vfs.ls("/");
+    cout << vfs.ls("/") << endl;
+    vfs.mkdir("/home");
     vfs.mkdir("/home/delta");
-    vfs.touch("/home/delta/Readme.txt");
-    vfs.ls("/home/delta");
-    vfs.ls("/");
-    vfs.ls("/home");
+    cout << vfs.ls("/") << endl;
+    cout << vfs.ls("/home") << endl;
 
-    int fd;
-    const char *content = "Hello World!";
-    fd = vfs.open("/home/delta/Readme.txt", O_RDWR);
-    auto s1 = vfs.write(fd, content, strlen(content) + 1);
+    vfs.create("/home/delta/Readme.txt");
+    int fd = vfs.open("/home/delta/Readme.txt", O_WRONLY);
+    vfs.write(fd, "Hello World", 11);
     vfs.close(fd);
-    fd = vfs.open("/home/delta/Readme.txt", O_RDWR);
-    char buf[1024];
-    vfs.read(fd, buf, 1024);
+    cout << vfs.ls("/home/delta") << endl;
+
+    char buf[512];
+    memset(buf, 0, sizeof(buf));
+    fd = vfs.open("/home/delta/Readme.txt", O_RDONLY);
+    vfs.read(fd, buf, 512);
     cout << buf << endl;
+    vfs.close(fd);
 
     return 0;
 }
