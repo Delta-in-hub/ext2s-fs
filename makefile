@@ -1,12 +1,20 @@
 net_source = src/extern/*.cpp src/extern/*.h
 
 ext2_source = src/*.h
+CCFLAGS = -Ofast -std=c++14
 
-server:
-	g++ ${net_source} ${ext2_source} src/server.cpp -o bin/server
+ifeq ($(OS),Windows_NT)
+	CCFLAGS += -D WINDOWS -lWs2_32
+endif
 
-client:
-	g++ ${net_source} src/client.cpp -o bin/client
+mkdir:
+	mkdir -p bin
+
+server: mkdir
+	g++ ${net_source} ${ext2_source} src/server.cpp -o bin/server ${CCFLAGS}
+
+client: mkdir
+	g++ ${net_source} src/client.cpp -o bin/client ${CCFLAGS}
 
 clean:
 	rm -f bin/server bin/client

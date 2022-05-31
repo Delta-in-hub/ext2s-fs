@@ -573,6 +573,7 @@ namespace Ext2m
                 assert(0);
                 break;
             }
+            return -1;
         }
 
         uint32_t add_block_to_inode(size_t inode_num)
@@ -746,6 +747,7 @@ namespace Ext2m
                     return e.inode;
             }
             assert(0);
+            return -1;
         }
 
         void add_entry_to_inode(uint32_t inode_num, const entry &ent)
