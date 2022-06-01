@@ -39,3 +39,23 @@ Works for Block-Size = 1024Byte.
 
 - `server.cpp`: Server end for ext2s-fs, listen on port 60000(default).
 - `client.cpp`: Client end for ext2s-fs, connect to server and provide the terminal interface.
+
+
+## Others
+
+```bash
+❯ cloc ./ --exclude-dir=extern
+      13 text files.
+      13 unique files.
+       1 file ignored.
+
+github.com/AlDanial/cloc v 1.92  T=0.02 s (545.3 files/s, 133562.7 lines/s)
+-------------------------------------------------------------------------------
+Language                     files          blank        comment           code
+-------------------------------------------------------------------------------
+C/C++ Header                    10            221            397           2178
+C++                              3             42              4            342
+-------------------------------------------------------------------------------
+SUM:                            13            263            401           2520
+-------------------------------------------------------------------------------
+```
