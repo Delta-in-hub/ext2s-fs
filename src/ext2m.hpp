@@ -72,16 +72,18 @@ namespace Ext2m
 
         return std::make_tuple(FULL_GROUP_COUNT, GROUP_COUNT, blocks_per_group, blocks_last_group, group_desc_block_count, inodes_per_group, inodes_table_block_count, data_block_count);
     }
-
+    struct entry
+    {
+        __le32 inode; /* Inode number */
+        __u8 file_type;
+        std::string name;
+    };
     class Ext2m
     {
-    public:
-        Cache &_disk;
         uint8_t _buf[BLOCK_SIZE];
 
         size_t full_group_count;
         size_t blocks_per_group;
-        size_t inodes_per_group;
         size_t group_desc_block_count;
         size_t inodes_table_block_count;
 
@@ -204,56 +206,6 @@ namespace Ext2m
         }
 
         /**
-         * @brief Get the inode object with its inode num.
-         * ! Caution: Not modify the inode bitmap
-         * @param inode_num
-         * @param inode
-         */
-        void get_inode(size_t inode_num, struct ext2_inode &inode)
-        {
-            assert(inode_num >= 1);
-            inode_num--;
-            size_t group_index = inode_num / inodes_per_group;
-            size_t ind = inode_num % inodes_per_group;
-            assert(group_index < full_group_count);
-            auto inode_table_block_ind = get_inode_table_index(group_index);
-
-            //     BLOCK_SIZE / INODE_SIZE; // 8 inodes per block
-            size_t block_index = ind / 8;
-            size_t offset = ind % 8;
-
-            _disk.read_block(inode_table_block_ind + block_index, _buf);
-            auto *inode_table = (ext2_inode *)_buf;
-            inode = inode_table[offset];
-        }
-
-        /**
-         * @brief Write the inode object to the disk.
-         * ! Caution: Not modify the inode bitmap
-         * @param inode_num
-         * @param inode
-         */
-        void write_inode(size_t inode_num, const struct ext2_inode &inode)
-        {
-            assert(inode_num >= 1);
-            inode_num--;
-            size_t group_index = inode_num / inodes_per_group;
-            size_t ind = inode_num % inodes_per_group;
-            assert(group_index < full_group_count);
-            auto inode_table_block_ind = get_inode_table_index(group_index);
-
-            //  BLOCK_SIZE / INODE_SIZE; // 8 inodes per block
-            size_t block_index = ind / 8;
-            size_t offset = ind % 8;
-
-            _disk.read_block(inode_table_block_ind + block_index, _buf);
-            auto *inode_table = (ext2_inode *)_buf;
-            inode_table[offset] = inode;
-
-            _disk.write_block(inode_table_block_ind + block_index, _buf);
-        }
-
-        /**
          * @brief Get the block-group's {block bitmap} object
          *
          * @param group_index
@@ -329,134 +281,6 @@ namespace Ext2m
         }
 
         /**
-         * @brief Get the free block indexes, and modify the block bitmap. Try to find the consecutive blocks in the same group firstly.
-         *
-         * @param group_id
-         * @param count
-         * @return std::vector<size_t> , if failed , return empty vector.
-         */
-        std::vector<uint32_t> ballocs(size_t group_id, size_t count = 1)
-        {
-            // For simplicity, just find any free block in any group
-            std::vector<uint32_t> ret;
-            for (size_t i = group_id; (i + 1) % full_group_count != group_id; i = (i + 1) % full_group_count)
-            {
-                size_t group_ind = get_group_index(i);
-                auto &&bitmap = get_block_bitmap(i);
-                bool _bitmap_changed = false;
-                uint32_t start = 0;
-                while (start != (uint32_t)-1)
-                {
-                    start = bitmap.nextBit(start);
-                    if (start != (uint32_t)-1)
-                    {
-                        ret.push_back(start + group_ind);
-                        bitmap.set(start);
-                        _bitmap_changed = true;
-                        count--;
-                        if (count == 0)
-                        {
-                            write_block_bitmap(i, bitmap);
-                            return ret;
-                        }
-                    }
-                }
-                if (_bitmap_changed)
-                {
-                    write_block_bitmap(i, bitmap);
-                }
-            }
-            assert(0);
-            return {};
-        }
-
-        /**
-         * @brief Get a free block index, and modify the block bitmap.
-         *
-         * @param group_id
-         * @return uint32_t
-         */
-        uint32_t balloc(size_t group_id)
-        {
-            return ballocs(group_id, 1).at(0);
-        }
-
-        /**
-         * @brief Free a block, and modify the block bitmap.
-         *
-         * @param block_idx
-         */
-        void bfree(uint32_t block_idx)
-        {
-            if (block_idx == 0)
-                return;
-            auto group_idx = (block_idx - 1) / blocks_per_group;
-            auto offset = (block_idx - 1) % blocks_per_group;
-            assert(group_idx < full_group_count);
-            assert(offset >= 3 + group_desc_block_count + inodes_table_block_count);
-            auto &&bitmap = get_block_bitmap(group_idx);
-            bitmap.reset(offset);
-            write_block_bitmap(group_idx, bitmap);
-        }
-
-        /**
-         * @brief Find an avaialble inode index, and modify the inode bitmap.
-         *
-         * @return inode num , if failed , return 0.
-         */
-        size_t ialloc()
-        {
-            for (size_t i = 0; i < full_group_count; i++)
-            {
-                // inode num starts from 1
-                size_t start_inode_n = i * inodes_per_group + 1;
-                auto &&bitmap = get_inode_bitmap(i);
-                uint32_t start = 0;
-                while (start != (uint32_t)-1)
-                {
-                    start = bitmap.nextBit(start);
-                    if (start != (uint32_t)-1)
-                    {
-                        if (start + start_inode_n < _superb.s_first_ino)
-                        {
-                            start++;
-                            continue;
-                        }
-                        bitmap.set(start);
-                        write_inode_bitmap(i, bitmap);
-                        return start + start_inode_n;
-                    }
-                }
-            }
-            return 0;
-        }
-
-        /**
-         * @brief Free an inode, and modify the inode bitmap.
-         *
-         * @param inode_num
-         */
-
-        void ifree(uint32_t inode_num)
-        {
-            if (inode_num < _superb.s_first_ino)
-                return;
-            inode_num--;
-            size_t group_index = inode_num / inodes_per_group;
-            size_t ind = inode_num % inodes_per_group;
-            assert(group_index < full_group_count);
-
-            auto &&all_blocks = get_inode_all_blocks(inode_num);
-            for (auto &&i : all_blocks)
-            {
-                bfree(i);
-            }
-            auto &&bm = get_inode_bitmap(group_index);
-            bm.reset(ind);
-            write_inode_bitmap(group_index, bm);
-        }
-
-        /**
          * @brief Get the inode all blocks indexes into a vector. Recursively find all the blocks.
          *
          * @param _block_ind
@@ -491,47 +315,6 @@ namespace Ext2m
                 }
                 return true;
             }
-        }
-
-        /**
-         * @brief Get all blocks belongs to an inode.
-         *
-         * @param inode_num
-         * @return std::vector<uint32_t> blocks indexes.
-         */
-        std::vector<uint32_t> get_inode_all_blocks(size_t inode_num)
-        {
-            ext2_inode inode;
-            get_inode(inode_num, inode);
-            bool flag = true;
-            std::vector<uint32_t> indexs;
-            for (int i = 0; i < EXT2_N_BLOCKS; i++)
-            {
-                auto n = inode.i_block[i];
-                if (i < EXT2_DIRECT_BLOCKS) // direct access block
-                {
-                    flag &= __get_inode_all_blocks__(n, 0, indexs);
-                }
-                else if (i == EXT2_INDIRECT_BLOCK) // the first indirect block
-                {
-                    flag &= __get_inode_all_blocks__(n, 1, indexs);
-                }
-                else if (i == EXT2_DOUBLY_INDIRECT_BLOCK) // the second indirect block
-                {
-                    flag &= __get_inode_all_blocks__(n, 2, indexs);
-                }
-                else if (i == EXT2_TRIPLY_INDIRECT_BLOCK) // the third indirect block
-                {
-                    flag &= __get_inode_all_blocks__(n, 3, indexs);
-                }
-                else
-                {
-                    assert(0);
-                }
-                if (not flag)
-                    break;
-            }
-            return indexs;
         }
 
         /**
@@ -618,78 +401,6 @@ namespace Ext2m
             return -1;
         }
 
-        /**
-         * @brief Add a block to an inode.
-         *
-         * @param inode_num
-         * @return uint32_t
-         */
-        uint32_t add_block_to_inode(size_t inode_num)
-        {
-            size_t group_index = inode_num / inodes_per_group;
-
-            ext2_inode inode;
-            get_inode(inode_num, inode);
-
-            // direct access
-            for (int i = 0; i < EXT2_DIRECT_BLOCKS; i++)
-            {
-                auto nb = inode.i_block[i];
-                if (nb == EXT2M_I_BLOCK_END)
-                {
-                    auto pos = ballocs(group_index, 1).front();
-                    inode.i_block[i] = pos;
-                    write_inode(inode_num, inode);
-                    return pos;
-                }
-            }
-
-            // first indirect access
-            if (inode.i_block[EXT2_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
-            {
-                auto pos = ballocs(group_index, 1).front();
-                inode.i_block[EXT2_INDIRECT_BLOCK] = pos;
-                write_inode(inode_num, inode);
-
-                memset(_buf, 0, BLOCK_SIZE);
-                _disk.write_block(pos, _buf);
-            }
-            ssize_t ret = __add_block_to_inode__(inode.i_block[EXT2_INDIRECT_BLOCK], 1, group_index);
-            if (ret != -1)
-                return ret;
-
-            // second indirect access
-            if (inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
-            {
-                auto pos = ballocs(group_index, 1).front();
-                inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK] = pos;
-                write_inode(inode_num, inode);
-                memset(_buf, 0, BLOCK_SIZE);
-                _disk.write_block(pos, _buf);
-            }
-            ret = __add_block_to_inode__(inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK], 2, group_index);
-            if (ret != -1)
-                return ret;
-
-            // third indirect access
-            if (inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
-            {
-                auto pos = ballocs(group_index, 1).front();
-                inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK] = pos;
-                write_inode(inode_num, inode);
-                memset(_buf, 0, BLOCK_SIZE);
-                _disk.write_block(pos, _buf);
-            }
-            ret = __add_block_to_inode__(inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK], 3, group_index);
-            return ret;
-        }
-
-        struct entry
-        {
-            __le32 inode; /* Inode number */
-            __u8 file_type;
-            std::string name;
-        };
         struct entry_block
         {
         private:
@@ -783,31 +494,6 @@ namespace Ext2m
             }
         };
 
-        /**
-         * @brief Get all entrys belong to the inode.
-         *
-         * @param inode_num
-         * @return std::vector<entry>
-         */
-        std::vector<entry> get_inode_all_entry(uint32_t inode_num)
-        {
-            std::vector<entry> ret;
-            auto all_blocks = get_inode_all_blocks(inode_num);
-            for (auto &&i : all_blocks)
-            {
-                _disk.read_block(i, _buf);
-                entry_block eb(_buf);
-                entry e;
-                while (eb.next_entry(e))
-                {
-                    if (ret.size() > 2 and (e.name == "." or e.name == ".."))
-                        continue;
-                    ret.push_back(e);
-                }
-            }
-            return ret;
-        }
-
         uint32_t get_father_inode_num(uint32_t inode_num)
         {
             ext2_inode inode;
@@ -826,92 +512,9 @@ namespace Ext2m
             return -1;
         }
 
-        /**
-         * @brief Add an entry to the inode.
-         *
-         * @param inode_num
-         * @param ent
-         */
-        void add_entry_to_inode(uint32_t inode_num, const entry &ent)
-        {
-            assert(ent.name.size() <= EXT2_NAME_LEN);
-            auto &&all_blocks = get_inode_all_blocks(inode_num);
-            for (auto &&i : all_blocks)
-            {
-                _disk.read_block(i, _buf);
-                entry_block eb(_buf);
-                if (eb.add_entry(ent))
-                {
-                    _disk.write_block(i, _buf);
-                    return;
-                }
-            }
-            auto n = add_block_to_inode(inode_num);
-            assert(n != (uint32_t)-1);
-            init_entry_block(_buf, inode_num, get_father_inode_num(inode_num));
-            entry_block eb(_buf);
-            bool flag = eb.add_entry(ent);
-            assert(flag);
-            _disk.write_block(n, _buf);
-        }
-
-        /**
-         * @brief Free an entry of the inode.
-         *
-         * @param inode_num the directory inode.
-         * @param free_inode the inode to be freed.
-         */
-        void free_entry_to_inode(uint32_t inode_num, uint32_t free_inode)
-        {
-            auto &&all_blocks = get_inode_all_blocks(inode_num);
-            for (auto &&i : all_blocks)
-            {
-                _disk.read_block(i, _buf);
-                entry_block eb(_buf);
-                if (eb.free(free_inode))
-                {
-                    _disk.write_block(i, _buf);
-                    return;
-                }
-            }
-            assert(0);
-        }
-
-        void init_entry_block(void *_block, uint32_t inode_num, uint32_t father_inode_num)
-        {
-            memset(_block, 0, BLOCK_SIZE);
-            ext2_dir_entry_2 *_start = (ext2_dir_entry_2 *)_block;
-            _start->inode = inode_num;
-            _start->name_len = 1;
-            _start->file_type = EXT2_FT_DIR;
-            _start->name[0] = '.';
-            _start->name[1] = '\0';
-            _start->rec_len = 12;
-
-            _start = (ext2_dir_entry_2 *)((uint8_t *)_start + 12);
-            _start->inode = father_inode_num;
-            _start->name_len = 2;
-            _start->file_type = EXT2_FT_DIR;
-            _start->name[0] = '.';
-            _start->name[1] = '.';
-            _start->name[2] = '\0';
-            _start->rec_len = BLOCK_SIZE - 12;
-        }
-
-        void init_inode(ext2_inode &inode, __le16 mode, __le16 uid, __le16 gid)
-        {
-            memset(&inode, 0, sizeof(ext2_inode));
-            inode.i_mode = mode;
-            inode.i_uid = uid;
-            inode.i_gid = gid;
-            inode.i_links_count = 2;
-            inode.i_blocks = 1;
-            inode.i_dtime = 0;
-            inode.i_ctime = time(NULL);
-            inode.i_mtime = inode.i_ctime;
-            inode.i_atime = inode.i_ctime;
-            inode.i_size = 0;
-        }
+    public:
+        size_t inodes_per_group;
+        Cache &_disk;
 
         Ext2m(Cache &cache) : _disk(cache)
         {
@@ -1137,6 +740,402 @@ namespace Ext2m
             }
             write_inode(2, root_ino);
             sync();
+        };
+
+        /**
+         * @brief Get all entrys belong to the inode.
+         *
+         * @param inode_num
+         * @return std::vector<entry>
+         */
+        std::vector<entry> get_inode_all_entry(uint32_t inode_num)
+        {
+            std::vector<entry> ret;
+            auto all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                _disk.read_block(i, _buf);
+                entry_block eb(_buf);
+                entry e;
+                while (eb.next_entry(e))
+                {
+                    if (ret.size() > 2 and (e.name == "." or e.name == ".."))
+                        continue;
+                    ret.push_back(e);
+                }
+            }
+            return ret;
+        }
+
+        /**
+         * @brief Find an avaialble inode index, and modify the inode bitmap.
+         *
+         * @return inode num , if failed , return 0.
+         */
+        size_t ialloc()
+        {
+            for (size_t i = 0; i < full_group_count; i++)
+            {
+                // inode num starts from 1
+                size_t start_inode_n = i * inodes_per_group + 1;
+                auto &&bitmap = get_inode_bitmap(i);
+                uint32_t start = 0;
+                while (start != (uint32_t)-1)
+                {
+                    start = bitmap.nextBit(start);
+                    if (start != (uint32_t)-1)
+                    {
+                        if (start + start_inode_n < _superb.s_first_ino)
+                        {
+                            start++;
+                            continue;
+                        }
+                        bitmap.set(start);
+                        write_inode_bitmap(i, bitmap);
+                        return start + start_inode_n;
+                    }
+                }
+            }
+            return 0;
+        }
+
+        void init_inode(ext2_inode &inode, __le16 mode, __le16 uid, __le16 gid)
+        {
+            memset(&inode, 0, sizeof(ext2_inode));
+            inode.i_mode = mode;
+            inode.i_uid = uid;
+            inode.i_gid = gid;
+            inode.i_links_count = 2;
+            inode.i_blocks = 1;
+            inode.i_dtime = 0;
+            inode.i_ctime = time(NULL);
+            inode.i_mtime = inode.i_ctime;
+            inode.i_atime = inode.i_ctime;
+            inode.i_size = 0;
+        }
+
+        /**
+         * @brief Get the free block indexes, and modify the block bitmap. Try to find the consecutive blocks in the same group firstly.
+         *
+         * @param group_id
+         * @param count
+         * @return std::vector<size_t> , if failed , return empty vector.
+         */
+        std::vector<uint32_t> ballocs(size_t group_id, size_t count = 1)
+        {
+            // For simplicity, just find any free block in any group
+            std::vector<uint32_t> ret;
+            for (size_t i = group_id; (i + 1) % full_group_count != group_id; i = (i + 1) % full_group_count)
+            {
+                size_t group_ind = get_group_index(i);
+                auto &&bitmap = get_block_bitmap(i);
+                bool _bitmap_changed = false;
+                uint32_t start = 0;
+                while (start != (uint32_t)-1)
+                {
+                    start = bitmap.nextBit(start);
+                    if (start != (uint32_t)-1)
+                    {
+                        ret.push_back(start + group_ind);
+                        bitmap.set(start);
+                        _bitmap_changed = true;
+                        count--;
+                        if (count == 0)
+                        {
+                            write_block_bitmap(i, bitmap);
+                            return ret;
+                        }
+                    }
+                }
+                if (_bitmap_changed)
+                {
+                    write_block_bitmap(i, bitmap);
+                }
+            }
+            assert(0);
+            return {};
+        }
+
+        /**
+         * @brief Get a free block index, and modify the block bitmap.
+         *
+         * @param group_id
+         * @return uint32_t
+         */
+        uint32_t balloc(size_t group_id)
+        {
+            return ballocs(group_id, 1).at(0);
+        }
+
+        /**
+         * @brief Free a block, and modify the block bitmap.
+         *
+         * @param block_idx
+         */
+        void bfree(uint32_t block_idx)
+        {
+            if (block_idx == 0)
+                return;
+            auto group_idx = (block_idx - 1) / blocks_per_group;
+            auto offset = (block_idx - 1) % blocks_per_group;
+            assert(group_idx < full_group_count);
+            assert(offset >= 3 + group_desc_block_count + inodes_table_block_count);
+            auto &&bitmap = get_block_bitmap(group_idx);
+            bitmap.reset(offset);
+            write_block_bitmap(group_idx, bitmap);
+        }
+
+        /**
+         * @brief Free an inode, and modify the inode bitmap.
+         *
+         * @param inode_num
+         */
+
+        void ifree(uint32_t inode_num)
+        {
+            if (inode_num < _superb.s_first_ino)
+                return;
+            inode_num--;
+            size_t group_index = inode_num / inodes_per_group;
+            size_t ind = inode_num % inodes_per_group;
+            assert(group_index < full_group_count);
+
+            auto &&all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                bfree(i);
+            }
+            auto &&bm = get_inode_bitmap(group_index);
+            bm.reset(ind);
+            write_inode_bitmap(group_index, bm);
+        }
+
+        /**
+         * @brief Write the inode object to the disk.
+         * ! Caution: Not modify the inode bitmap
+         * @param inode_num
+         * @param inode
+         */
+        void write_inode(size_t inode_num, const struct ext2_inode &inode)
+        {
+            assert(inode_num >= 1);
+            inode_num--;
+            size_t group_index = inode_num / inodes_per_group;
+            size_t ind = inode_num % inodes_per_group;
+            assert(group_index < full_group_count);
+            auto inode_table_block_ind = get_inode_table_index(group_index);
+
+            //  BLOCK_SIZE / INODE_SIZE; // 8 inodes per block
+            size_t block_index = ind / 8;
+            size_t offset = ind % 8;
+
+            _disk.read_block(inode_table_block_ind + block_index, _buf);
+            auto *inode_table = (ext2_inode *)_buf;
+            inode_table[offset] = inode;
+
+            _disk.write_block(inode_table_block_ind + block_index, _buf);
+        }
+
+        void init_entry_block(void *_block, uint32_t inode_num, uint32_t father_inode_num)
+        {
+            memset(_block, 0, BLOCK_SIZE);
+            ext2_dir_entry_2 *_start = (ext2_dir_entry_2 *)_block;
+            _start->inode = inode_num;
+            _start->name_len = 1;
+            _start->file_type = EXT2_FT_DIR;
+            _start->name[0] = '.';
+            _start->name[1] = '\0';
+            _start->rec_len = 12;
+
+            _start = (ext2_dir_entry_2 *)((uint8_t *)_start + 12);
+            _start->inode = father_inode_num;
+            _start->name_len = 2;
+            _start->file_type = EXT2_FT_DIR;
+            _start->name[0] = '.';
+            _start->name[1] = '.';
+            _start->name[2] = '\0';
+            _start->rec_len = BLOCK_SIZE - 12;
+        }
+
+        /**
+         * @brief Add an entry to the inode.
+         *
+         * @param inode_num
+         * @param ent
+         */
+        void add_entry_to_inode(uint32_t inode_num, const entry &ent)
+        {
+            assert(ent.name.size() <= EXT2_NAME_LEN);
+            auto &&all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                _disk.read_block(i, _buf);
+                entry_block eb(_buf);
+                if (eb.add_entry(ent))
+                {
+                    _disk.write_block(i, _buf);
+                    return;
+                }
+            }
+            auto n = add_block_to_inode(inode_num);
+            assert(n != (uint32_t)-1);
+            init_entry_block(_buf, inode_num, get_father_inode_num(inode_num));
+            entry_block eb(_buf);
+            bool flag = eb.add_entry(ent);
+            assert(flag);
+            _disk.write_block(n, _buf);
+        }
+        /**
+         * @brief Get the inode object with its inode num.
+         * ! Caution: Not modify the inode bitmap
+         * @param inode_num
+         * @param inode
+         */
+        void get_inode(size_t inode_num, struct ext2_inode &inode)
+        {
+            assert(inode_num >= 1);
+            inode_num--;
+            size_t group_index = inode_num / inodes_per_group;
+            size_t ind = inode_num % inodes_per_group;
+            assert(group_index < full_group_count);
+            auto inode_table_block_ind = get_inode_table_index(group_index);
+
+            //     BLOCK_SIZE / INODE_SIZE; // 8 inodes per block
+            size_t block_index = ind / 8;
+            size_t offset = ind % 8;
+
+            _disk.read_block(inode_table_block_ind + block_index, _buf);
+            auto *inode_table = (ext2_inode *)_buf;
+            inode = inode_table[offset];
+        }
+
+        /**
+         * @brief Free an entry of the inode.
+         *
+         * @param inode_num the directory inode.
+         * @param free_inode the inode to be freed.
+         */
+        void free_entry_to_inode(uint32_t inode_num, uint32_t free_inode)
+        {
+            auto &&all_blocks = get_inode_all_blocks(inode_num);
+            for (auto &&i : all_blocks)
+            {
+                _disk.read_block(i, _buf);
+                entry_block eb(_buf);
+                if (eb.free(free_inode))
+                {
+                    _disk.write_block(i, _buf);
+                    return;
+                }
+            }
+            assert(0);
+        }
+
+        /**
+         * @brief Get all blocks belongs to an inode.
+         *
+         * @param inode_num
+         * @return std::vector<uint32_t> blocks indexes.
+         */
+        std::vector<uint32_t> get_inode_all_blocks(size_t inode_num)
+        {
+            ext2_inode inode;
+            get_inode(inode_num, inode);
+            bool flag = true;
+            std::vector<uint32_t> indexs;
+            for (int i = 0; i < EXT2_N_BLOCKS; i++)
+            {
+                auto n = inode.i_block[i];
+                if (i < EXT2_DIRECT_BLOCKS) // direct access block
+                {
+                    flag &= __get_inode_all_blocks__(n, 0, indexs);
+                }
+                else if (i == EXT2_INDIRECT_BLOCK) // the first indirect block
+                {
+                    flag &= __get_inode_all_blocks__(n, 1, indexs);
+                }
+                else if (i == EXT2_DOUBLY_INDIRECT_BLOCK) // the second indirect block
+                {
+                    flag &= __get_inode_all_blocks__(n, 2, indexs);
+                }
+                else if (i == EXT2_TRIPLY_INDIRECT_BLOCK) // the third indirect block
+                {
+                    flag &= __get_inode_all_blocks__(n, 3, indexs);
+                }
+                else
+                {
+                    assert(0);
+                }
+                if (not flag)
+                    break;
+            }
+            return indexs;
+        }
+
+        /**
+         * @brief Add a block to an inode.
+         *
+         * @param inode_num
+         * @return uint32_t
+         */
+        uint32_t add_block_to_inode(size_t inode_num)
+        {
+            size_t group_index = inode_num / inodes_per_group;
+
+            ext2_inode inode;
+            get_inode(inode_num, inode);
+
+            // direct access
+            for (int i = 0; i < EXT2_DIRECT_BLOCKS; i++)
+            {
+                auto nb = inode.i_block[i];
+                if (nb == EXT2M_I_BLOCK_END)
+                {
+                    auto pos = ballocs(group_index, 1).front();
+                    inode.i_block[i] = pos;
+                    write_inode(inode_num, inode);
+                    return pos;
+                }
+            }
+
+            // first indirect access
+            if (inode.i_block[EXT2_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
+            {
+                auto pos = ballocs(group_index, 1).front();
+                inode.i_block[EXT2_INDIRECT_BLOCK] = pos;
+                write_inode(inode_num, inode);
+
+                memset(_buf, 0, BLOCK_SIZE);
+                _disk.write_block(pos, _buf);
+            }
+            ssize_t ret = __add_block_to_inode__(inode.i_block[EXT2_INDIRECT_BLOCK], 1, group_index);
+            if (ret != -1)
+                return ret;
+
+            // second indirect access
+            if (inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
+            {
+                auto pos = ballocs(group_index, 1).front();
+                inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK] = pos;
+                write_inode(inode_num, inode);
+                memset(_buf, 0, BLOCK_SIZE);
+                _disk.write_block(pos, _buf);
+            }
+            ret = __add_block_to_inode__(inode.i_block[EXT2_DOUBLY_INDIRECT_BLOCK], 2, group_index);
+            if (ret != -1)
+                return ret;
+
+            // third indirect access
+            if (inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK] == EXT2M_I_BLOCK_END)
+            {
+                auto pos = ballocs(group_index, 1).front();
+                inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK] = pos;
+                write_inode(inode_num, inode);
+                memset(_buf, 0, BLOCK_SIZE);
+                _disk.write_block(pos, _buf);
+            }
+            ret = __add_block_to_inode__(inode.i_block[EXT2_TRIPLY_INDIRECT_BLOCK], 3, group_index);
+            return ret;
         }
     };
 

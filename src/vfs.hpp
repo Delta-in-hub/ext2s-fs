@@ -41,7 +41,7 @@ class VFS
         _ext2.init_entry_block(_buf, newid, inode_idx);
         _ext2._disk.write_block(inode.i_block[0], _buf);
 
-        Ext2m::Ext2m::entry e;
+        Ext2m::entry e;
         e.file_type = EXT2_FT_DIR;
         e.inode = newid;
         e.name = name;
@@ -89,7 +89,7 @@ class VFS
         ext2_inode inode;
         _ext2.init_inode(inode, EXT2_S_IFREG | 0644, 0, 0);
         _ext2.write_inode(nid, inode);
-        Ext2m::Ext2m::entry e;
+        Ext2m::entry e;
         e.file_type = EXT2_FT_REG_FILE;
         e.inode = nid;
         e.name = file_name;
@@ -364,7 +364,7 @@ class VFS
 
         _ext2.free_entry_to_inode(father_idx, inode_idx);
 
-        Ext2m::Ext2m::entry e;
+        Ext2m::entry e;
         if (check_regular_file(inode.i_mode))
             e.file_type = EXT2_FT_REG_FILE;
         else if (check_dir(inode.i_mode))
