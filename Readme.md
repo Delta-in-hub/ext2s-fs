@@ -1,86 +1,41 @@
-# File System
+# ext2s-fs
 
-- [File System](#file-system)
-  - [Complie](#complie)
-  - [Intro](#intro)
-    - [FAT : File Allocation Table](#fat--file-allocation-table)
-  - [Command](#command)
-  - [EXT2](#ext2)
+> https://github.com/Delta-in-hub/ext2s-fs
 
-## Complie
+EXT2-Simplified File System Implementation (ext2s-fs).
+Cross-platform , based on C++14.
+Support multiple users(clients).
+The struct definition is same to the real ext2 specification.
+Works for Block-Size = 1024Byte.
 
-Windows 
+## Build
+
 ```bash
-> mingw32-make.exe all
+> git clone https://github.com/Delta-in-hub/ext2s-fs.git
+> cd ext2s-fs
+> make all # on Windows>  mingw32-make.exe all
+> cd bin
+> ./server # server end
+> ./client # client end
 ```
 
-Linux 
-```bash
-> make all
-```
-
-## Intro
-
-Block array -> Block set -> file -> directory -> file system
-
-1. Block
-   1. `balloc()` and `bfree()`
-      - Using list or bitmap to manage blocks
-   2. `bread()` and `bwrite()`
-2. File
-3. Directory
-
-### FAT : File Allocation Table
-
-1980s, FAT was introduced. It is just for small files.
-Free list is used to manage blocks.
-
-```c++
-// {[data|next],[data,next],.......}
-struct block{
-    char data[510];
-    uint16 next;
-}; 
-
-// or 
-
-// {next[0],next[1],.....}  .....  {data[0],data[1],........}
-// This is the method that FAT uses.
-
-```
-
-FAT-12/16/32 (FAT entry, which is size of next pointer in bits)
 
 
+## Design
 
-## Command
+![ext2-vfs](http://www.meteck.org/IMAGES/ext2-vfs.gif)
 
-- 多用户
-  - 登陆
-  - 注册
-  - logout
-- 文件系统操作
-  - `open` `create` `read` `write`  `close`
-  - `delete` `mkdir` `chdir` `dir` 
-  - `format`
+- `config.h`: Configuration of my ext2s-fs.
+- `ext2_spec.h`: ext2 specification
+- `bitmap.hpp`: Bitmap class
+- `util.hpp`: Utility functions
+- `disk.hpp`: Disk interface. Read or Write with block size = 1024Byte.
+- `cache.hpp`: LRU Cache. Cache the disk block data.
+- `ext2m.hpp`: ext2s implementation. Manage the block, inode, entry.
+- `vfs.hpp`: Virtual File System. Provide the api like `open` `read` `write` etc..
+- `shell.hpp`: Command line tools like `cat` `touch` ...
+- `user.hpp`: User management. `userlist` is in `bin/userlist.txt`.
+  - `uid  usrename  password`
 
-
-
-
-
-## EXT2
-> https://wiki.osdev.org/Ext2#Inode_Type_and_Permissions
-The root directory is Inode 2.
-
-> https://www.vidarholen.net/contents/junk/inodes.html
-> 
-
-Note that although both the superblock and the group descriptors are duplicated in each block group, only the superblock and the group descriptors included in block group 0 are used by the kernel, while the remaining superblocks and group descriptors are left unchanged. 
-
-
-
-`get_inode`
-
-`get_block`
-
-`get_entry`
+- `server.cpp`: Server end for ext2s-fs, listen on port 60000(default).
+- `client.cpp`: Client end for ext2s-fs, connect to server and provide the terminal interface.

@@ -178,11 +178,23 @@ namespace Ext2m
             return get_inode_table_index(group_index) + inodes_table_block_count;
         }
 
+        /**
+         * @brief Write the block-group's super block to disk
+         *
+         * @param group_index
+         * @param _block the content of super block to write
+         */
         void write_super_block(size_t group_index, void *_block)
         {
             _disk.write_block(get_super_block_index(group_index), _block);
         }
 
+        /**
+         * @brief Write the block-group's group descriptor table to disk
+         *
+         * @param group_index
+         * @param _block
+         */
         void write_group_desc_table(size_t group_index, void *_block)
         {
             for (size_t i = 0; i < group_desc_block_count; i++)
@@ -358,11 +370,22 @@ namespace Ext2m
             return {};
         }
 
+        /**
+         * @brief Get a free block index, and modify the block bitmap.
+         *
+         * @param group_id
+         * @return uint32_t
+         */
         uint32_t balloc(size_t group_id)
         {
             return ballocs(group_id, 1).at(0);
         }
 
+        /**
+         * @brief Free a block, and modify the block bitmap.
+         *
+         * @param block_idx
+         */
         void bfree(uint32_t block_idx)
         {
             if (block_idx == 0)
@@ -408,6 +431,12 @@ namespace Ext2m
             return 0;
         }
 
+        /**
+         * @brief Free an inode, and modify the inode bitmap.
+         *
+         * @param inode_num
+         */
+
         void ifree(uint32_t inode_num)
         {
             if (inode_num < _superb.s_first_ino)
@@ -427,10 +456,8 @@ namespace Ext2m
             write_inode_bitmap(group_index, bm);
         }
 
-        // /*
-
         /**
-         * @brief Get the inode all blocks indexes into a vector.
+         * @brief Get the inode all blocks indexes into a vector. Recursively find all the blocks.
          *
          * @param _block_ind
          * @param level
@@ -466,6 +493,12 @@ namespace Ext2m
             }
         }
 
+        /**
+         * @brief Get all blocks belongs to an inode.
+         *
+         * @param inode_num
+         * @return std::vector<uint32_t> blocks indexes.
+         */
         std::vector<uint32_t> get_inode_all_blocks(size_t inode_num)
         {
             ext2_inode inode;
@@ -501,6 +534,14 @@ namespace Ext2m
             return indexs;
         }
 
+        /**
+         * @brief Add a block to an inode. Recursively.
+         *
+         * @param _block_ind the inode's block index
+         * @param level 0 for direct access block, 1 for the first indirect block, 2 for the second indirect block, 3 for the third indirect block.
+         * @param group_index
+         * @return ssize_t the block index added to the inode.
+         */
         ssize_t __add_block_to_inode__(uint32_t _block_ind, int level, uint32_t group_index)
         {
             switch (level)
@@ -577,6 +618,12 @@ namespace Ext2m
             return -1;
         }
 
+        /**
+         * @brief Add a block to an inode.
+         *
+         * @param inode_num
+         * @return uint32_t
+         */
         uint32_t add_block_to_inode(size_t inode_num)
         {
             size_t group_index = inode_num / inodes_per_group;
@@ -651,6 +698,13 @@ namespace Ext2m
         public:
             entry_block() = delete;
             entry_block(uint8_t *block) : _block(block), _now(block), _end(block + BLOCK_SIZE) {}
+
+            /**
+             * @brief Get the entry of the block.
+             * @param e entry to be filled.
+             * @return true for success.
+             * @return false for reach end of block.
+             */
             bool next_entry(entry &e)
             {
                 if (_now == _end)
@@ -662,6 +716,12 @@ namespace Ext2m
                 _now += ent->rec_len;
                 return true;
             }
+
+            /**
+             * @brief Add an entry to the block
+             *
+             * @param e entry to be added.
+             */
             bool add_entry(const entry &e)
             {
                 size_t e_size = roundup(e.name.size() + 1 + sizeof(ext2_dir_entry_2), 4);
@@ -688,6 +748,14 @@ namespace Ext2m
                 }
                 return false;
             }
+
+            /**
+             * @brief Free an entry whose inode is inode_num.
+             *
+             * @param inode_num
+             * @return true
+             * @return false
+             */
             bool free(uint32_t inode_num)
             {
                 uint8_t *_pre = nullptr;
@@ -714,6 +782,13 @@ namespace Ext2m
                 return false;
             }
         };
+
+        /**
+         * @brief Get all entrys belong to the inode.
+         *
+         * @param inode_num
+         * @return std::vector<entry>
+         */
         std::vector<entry> get_inode_all_entry(uint32_t inode_num)
         {
             std::vector<entry> ret;
@@ -751,6 +826,12 @@ namespace Ext2m
             return -1;
         }
 
+        /**
+         * @brief Add an entry to the inode.
+         *
+         * @param inode_num
+         * @param ent
+         */
         void add_entry_to_inode(uint32_t inode_num, const entry &ent)
         {
             assert(ent.name.size() <= EXT2_NAME_LEN);
@@ -774,6 +855,12 @@ namespace Ext2m
             _disk.write_block(n, _buf);
         }
 
+        /**
+         * @brief Free an entry of the inode.
+         *
+         * @param inode_num the directory inode.
+         * @param free_inode the inode to be freed.
+         */
         void free_entry_to_inode(uint32_t inode_num, uint32_t free_inode)
         {
             auto &&all_blocks = get_inode_all_blocks(inode_num);
@@ -789,8 +876,6 @@ namespace Ext2m
             }
             assert(0);
         }
-
-        // */
 
         void init_entry_block(void *_block, uint32_t inode_num, uint32_t father_inode_num)
         {
