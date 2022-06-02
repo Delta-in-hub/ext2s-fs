@@ -13,9 +13,11 @@ class VFS
     std::string _cwd;
     uint8_t _buf[BLOCK_SIZE];
     Ext2m::Ext2m &_ext2;
+    bool _find_dir_from_inode_new_create_flag;
 
     ssize_t find_dir_from_inode(uint32_t inode_idx, const std::string &name, bool creat = false)
     {
+        _find_dir_from_inode_new_create_flag = false;
         auto entrys = _ext2.get_inode_all_entry(inode_idx);
         for (auto &&j : entrys)
         {
@@ -46,6 +48,7 @@ class VFS
         e.inode = newid;
         e.name = name;
         _ext2.add_entry_to_inode(inode_idx, e);
+        _find_dir_from_inode_new_create_flag = true;
         return newid;
     }
 
@@ -57,7 +60,7 @@ class VFS
         for (auto &&i : paths)
         {
             auto idx = find_dir_from_inode(inode_idx, i, true);
-            if (idx == -1)
+            if (idx == -1 or _find_dir_from_inode_new_create_flag == false)
                 return -1;
             inode_idx = idx;
         }
@@ -349,6 +352,15 @@ class VFS
             return -1;
         auto rname = npath.back();
         npath.pop_back();
+
+        auto all_entrys = _ext2.get_inode_all_entry(father_idx);
+        for (auto &&i : all_entrys)
+        {
+            if (i.name == rname)
+            {
+                return -1;
+            }
+        }
 
         uint32_t target_inode_idx = ROOT_INODE;
         for (auto &&i : npath)
