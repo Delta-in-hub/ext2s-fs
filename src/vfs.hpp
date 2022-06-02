@@ -165,10 +165,15 @@ class VFS
                 type = "file";
             else
                 type = "unknow";
+            char output[64] = {};
             auto t = time_t(inode.i_ctime);
-            char output[64];
+#if defined(_WIN32) || defined(WIN32)
+            struct tm date;
+            gmtime_s(&date, &t);
+            sprintf(output, "%d-%d-%d %d:%d:%d", date.tm_year + 1900, date.tm_mon, date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec);
+#else
             std::strftime(output, sizeof(output), "%F %T", localtime(&t));
-
+#endif
             sprintf(buf, "%-10d %-10s %20s %10d %15s\n", i.inode, type.c_str(), output, inode.i_size, i.name.c_str());
             ret += buf;
         }
