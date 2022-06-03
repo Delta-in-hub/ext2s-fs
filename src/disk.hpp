@@ -23,7 +23,7 @@ public:
         {
             _fp = fopen(_path, "w+b");
             assert(_fp != nullptr);
-            fseek(_fp, DISK_SIZE, SEEK_END);
+            fseek(_fp, DISK_SIZE, SEEK_SET);
             fwrite("\0", 1, 1, _fp);
         }
         else
