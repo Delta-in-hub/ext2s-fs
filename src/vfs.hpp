@@ -170,7 +170,7 @@ class VFS
 #if defined(_WIN32) || defined(WIN32)
             struct tm date;
             gmtime_s(&date, &t);
-            sprintf(output, "%d-%d-%d %d:%d:%d", date.tm_year + 1900, date.tm_mon, date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec);
+            sprintf(output, "%d-%d-%d %d:%d:%d", date.tm_year + 1900, date.tm_mon + 1, date.tm_mday, date.tm_hour + 8, date.tm_min, date.tm_sec);
 #else
             std::strftime(output, sizeof(output), "%F %T", localtime(&t));
 #endif
